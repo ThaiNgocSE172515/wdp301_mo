@@ -24,7 +24,6 @@ export interface Drone {
 }
 
 export interface CreateDronePayload {
-  droneId: string;
   serialNumber: string;
   model: string;
   ownerType: string;

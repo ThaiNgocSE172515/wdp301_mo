@@ -1,6 +1,6 @@
 // app/(tabs)/_layout.tsx
-import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Tabs } from 'expo-router';
 import { Platform } from 'react-native'; // Import thêm để check hệ điều hành nếu cần
 
 export default function TabLayout() {
@@ -18,13 +18,11 @@ export default function TabLayout() {
           height: Platform.OS === 'android' ? 100 : 60, 
           // 👇 Đẩy icon lên trên một chút để không đụng mép dưới
           paddingBottom: Platform.OS === 'android' ? 15 : 10,
-          // (Tùy chọn) Thêm padding trên để icon cân đối hơn
           paddingTop: 10, 
         },
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: '600',
-          // 👇 Thêm margin dưới để chữ không sát đáy quá
           marginBottom: Platform.OS === 'android' ? 5 : 0,
         },
       }}
