@@ -1,42 +1,42 @@
-import React, { useEffect, useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  Image, 
-  TouchableOpacity, 
-  SafeAreaView, 
-  Dimensions, 
-  Modal 
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import MapView, { Marker } from 'react-native-maps';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { UserData } from '@/api/authApi';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  Dimensions,
+  Image,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
 
 const { width, height } = Dimensions.get('window');
 
 export default function HomeScreen() {
   const [user, setUser] = useState<UserData | null>(null);
-  const [showTerms, setShowTerms] = useState(false); // 2. State quản lý hiển thị Modal
+  const [showTerms, setShowTerms] = useState(false);
   const router = useRouter();
+  const fullName = user?.profile?.fullName?.trim() || 'User';
+  const firstLetter = fullName.charAt(0).toUpperCase();
+
 
   useEffect(() => {
     const initData = async () => {
       try {
-        // Lấy User Profile
         const jsonValue = await AsyncStorage.getItem('USER_PROFILE');
         if (jsonValue != null) {
           const userdata = JSON.parse(jsonValue);
           setUser(userdata);
         }
-
-        // 3. Kiểm tra đã đồng ý điều khoản chưa
         const hasAgreed = await AsyncStorage.getItem('HAS_AGREED_TOS');
         if (hasAgreed !== 'true') {
-          setShowTerms(true); // Chưa đồng ý thì hiện Modal
+          setShowTerms(true);
         }
 
       } catch (e) {
@@ -45,8 +45,6 @@ export default function HomeScreen() {
     };
     initData();
   }, []);
-
-  // 4. Hàm xử lý khi nhấn Đồng ý
   const handleAgreeTerms = async () => {
     try {
       await AsyncStorage.setItem('HAS_AGREED_TOS', 'true');
@@ -58,32 +56,31 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* --- 5. Modal Điều khoản --- */}
+      {/* --- Modal Điều khoản --- */}
       <Modal
         animationType="slide"
         transparent={true}
         visible={showTerms}
         onRequestClose={() => {
-           // Chặn nút Back trên Android, bắt buộc phải nhấn đồng ý
         }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalHeader}>Điều Khoản & Dịch Vụ</Text>
-            
+
             <View style={styles.modalBody}>
               <ScrollView showsVerticalScrollIndicator={true}>
                 <Text style={styles.modalText}>
                   Chào mừng bạn đến với ứng dụng Manager Drone. {'\n\n'}
-                  1. <Text style={{fontWeight: 'bold'}}>Quyền riêng tư:</Text> Chúng tôi thu thập vị trí Drone để hiển thị trên bản đồ...{'\n\n'}
-                  2. <Text style={{fontWeight: 'bold'}}>Trách nhiệm:</Text> Bạn chịu trách nhiệm về việc điều khiển thiết bị...{'\n\n'}
+                  1. <Text style={{ fontWeight: 'bold' }}>Quyền riêng tư:</Text> Chúng tôi thu thập vị trí Drone để hiển thị trên bản đồ...{'\n\n'}
+                  2. <Text style={{ fontWeight: 'bold' }}>Trách nhiệm:</Text> Bạn chịu trách nhiệm về việc điều khiển thiết bị...{'\n\n'}
                   (Vui lòng đọc kỹ trước khi sử dụng)
                 </Text>
               </ScrollView>
             </View>
 
-            <TouchableOpacity 
-              style={styles.agreeButton} 
+            <TouchableOpacity
+              style={styles.agreeButton}
               onPress={handleAgreeTerms}
               activeOpacity={0.8}
             >
@@ -92,14 +89,15 @@ export default function HomeScreen() {
           </View>
         </View>
       </Modal>
-      {/* --- Hết Modal --- */}
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
         {/* --- Header --- */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Home</Text>
-          <View style={styles.avatar} />
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{firstLetter}</Text>
+          </View>
         </View>
         <View style={styles.greetingSection}>
           <Text style={styles.userName}>{user ? user.profile.fullName : 'User'}</Text>
@@ -161,7 +159,14 @@ const styles = StyleSheet.create({
   scrollContent: { padding: 20, paddingBottom: 50 },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 10 },
   headerTitle: { fontSize: 25, fontWeight: '600', color: '#1F222A', left: 137 },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#D9D9D9' },
+  avatar: {
+  width: 40,
+  height: 40,
+  borderRadius: 20,
+  backgroundColor: '#000000',
+  justifyContent: 'center',
+  alignItems: 'center',
+},
   greetingSection: { marginBottom: 20 },
   userName: { fontSize: 26, fontWeight: 'bold', color: '#1F222A' },
   welcomeText: { fontSize: 14, color: '#A0A0A0', marginTop: 4 },
@@ -242,5 +247,11 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
-  }
+  },
+  avatarText: {
+  fontSize: 16,
+  fontWeight: '800',
+  color: '#ffffff',
+  lineHeight: 16, 
+},
 });
