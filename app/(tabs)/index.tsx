@@ -14,7 +14,7 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import MapView, { Marker } from 'react-native-maps';
+// import MapView, { Marker } from 'react-native-maps';
 
 const { width, height } = Dimensions.get('window');
 
@@ -125,7 +125,7 @@ export default function HomeScreen() {
           />
         </TouchableOpacity>
 
-        <View style={styles.mapSection}>
+        {/* <View style={styles.mapSection}>
           <Text style={styles.sectionTitle}>Drone Location</Text>
 
           <View style={styles.mapContainer}>
@@ -148,7 +148,7 @@ export default function HomeScreen() {
               />
             </MapView>
           </View>
-        </View>
+        </View> */}
       </ScrollView>
     </SafeAreaView>
   );
