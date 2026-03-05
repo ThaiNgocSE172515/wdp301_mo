@@ -3,9 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { StatusBar, StyleSheet, Text, View } from "react-native";
 import io from "socket.io-client";
 import zoneApi from "../../api/zoneApi"; // <-- Đảm bảo import đúng đường dẫn api của bạn
-// import { styles } from "./_layout";
 
-// --- CẤU HÌNH SOCKET ---
 const SOCKET_URL = "http://192.168.2.106:3000";
 // const SOCKET_URL = "http://192.168.137.1:3000";
 
@@ -55,11 +53,9 @@ export default function MapViewerScreen() {
         // Lấy danh sách zones đang active, giới hạn 100 vùng
         const response = await zoneApi.getAll({ limit: 100, status: 'active' });
         
-        // Chuyển đổi dữ liệu từ API thành định dạng mà Component cần
         const formattedZones: Zone[] = response.data.data.map((item: any) => ({
           id: item._id,
           type: item.type as ZoneType,
-          // API trả về mảng [longitude, latitude] ở trong item.geometry.coordinates[0]
           coordinates: item.geometry.coordinates[0].map((coord: number[]) => ({
             longitude: coord[0],
             latitude: coord[1],
@@ -76,7 +72,6 @@ export default function MapViewerScreen() {
   }, []);
 
   useEffect(() => {
-    // Chỉ lắng nghe vị trí Drone
     const handleDronePos = (data: any) => {
       if (!data?.droneId) return;
       const newDrone = {
