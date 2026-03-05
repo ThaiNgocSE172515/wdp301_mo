@@ -1,92 +1,60 @@
 // app/index.tsx
-import React, { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
-import MapView, { Marker } from "react-native-maps";
-import io from "socket.io-client";
+import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ImageBackground } from 'react-native';
+import { useRouter } from 'expo-router';
 
-// ⚠️ REPLACE THIS WITH YOUR COMPUTER'S LAN IP ADDRESS
-// If using Android Emulator, you can try "http://10.0.2.2:3000"
-const SOCKET_URL = "http://192.168.2.103:3000"; 
-
-const socket = io(SOCKET_URL);
-
-export default function Index() {
-  const [drone, setDrone] = useState<any>(null);
-
-  useEffect(() => {
-    // Connection debugging
-    socket.on("connect", () => console.log("Connected to Socket Server"));
-    socket.on("connect_error", (err) => console.log("Connection Error:", err));
-
-    socket.on("drone:position", (data) => {
-      console.log("Drone Data:", data); // Debug log
-      setDrone(data);
-    });
-
-    return () => {
-      socket.off("drone:position");
-      socket.off("connect");
-      socket.off("connect_error");
-    };
-  }, []);
+export default function WelcomeScreen() {
+  const router = useRouter();
 
   return (
-    <View style={styles.container}>
-      <MapView
-        style={styles.map}
-        // provider={PROVIDER_GOOGLE} // Uncomment if you specifically want Google Maps on iOS
-        initialRegion={{
-          latitude: 10.762622,
-          longitude: 106.660172,
-          latitudeDelta: 0.01,
-          longitudeDelta: 0.01,
-        }}
-      >
-        {drone && (
-          <Marker
-            coordinate={{
-              latitude: drone.lat,
-              longitude: drone.lng,
-            }}
-            title={drone.droneId || "Drone"}
-            description={`Altitude: ${drone.altitude}m`}
-          />
-        )}
-      </MapView>
+    <ImageBackground 
+      source={require('../assets/images/bg.png')} 
+      style={styles.container}
+      resizeMode="cover"
+    >
+      <View style={styles.contentContainer}>
+        <TouchableOpacity 
+          style={styles.loginBtn} 
+          onPress={() => router.push('/(auth)/login')}
+        >
+          <Text style={styles.loginText}>Login</Text>
+        </TouchableOpacity>
 
-      {drone && (
-        <View style={styles.infoBox}>
-          <Text style={styles.infoText}>🛩️ {drone.droneId}</Text>
-          <Text style={styles.infoText}>Altitude: {drone.altitude}m</Text>
-        </View>
-      )}
-    </View>
+        <TouchableOpacity 
+          style={styles.registerBtn}
+          onPress={() => router.push('/(auth)/register')}
+        >
+          <Text style={styles.registerText}>Register</Text>
+        </TouchableOpacity>
+      </View>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  container: { flex: 1 },
+  contentContainer: {
     flex: 1,
+    justifyContent: 'flex-end', 
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 80, 
   },
-  map: {
+  loginBtn: {
     width: '100%',
-    height: '100%',
-  },
-  infoBox: {
-    position: "absolute",
-    bottom: 40, // Moved up slightly to avoid bottom bar
-    left: 20,
-    backgroundColor: "white",
-    padding: 15,
+    backgroundColor: '#1F222A',
+    padding: 18,
     borderRadius: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    alignItems: 'center',
+    marginBottom: 15,
   },
-  infoText: {
-    fontSize: 16,
-    fontWeight: "bold",
-  }
+  loginText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  registerBtn: {
+    width: '100%',
+    backgroundColor: '#fff',
+    padding: 18,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  registerText: { color: '#000', fontSize: 16, fontWeight: '600' },
 });

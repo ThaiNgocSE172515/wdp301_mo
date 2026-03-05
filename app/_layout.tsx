@@ -1,10 +1,33 @@
 // app/_layout.tsx
-import { Stack } from "expo-router";
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Stack, useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
 
-export default function Layout() {
+export default function RootLayout() {
+ const router = useRouter();
+
+ useEffect(() => {
+  const checktoken = async () =>{
+    try {
+      const token = await AsyncStorage.getItem('ACCESS_TOKEN');
+      if(token){
+        router.replace('/(tabs)');
+      }else{
+        router.replace('/(auth)/login');
+      }
+    } catch (error) {
+      console.log("Lỗi check token: ", error);
+      router.replace('/(auth)/login');
+    }
+  };
+  checktoken();
+ },[]);
+
   return (
-    <Stack>
-      <Stack.Screen name="index" options={{ title: "Drone Tracker" }} />
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="index" />
+      <Stack.Screen name="(auth)" />
+      <Stack.Screen name="(tabs)" />
     </Stack>
   );
 }
