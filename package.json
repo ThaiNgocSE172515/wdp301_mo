@@ -17,6 +17,7 @@
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.8",
     "@rnmapbox/maps": "^10.2.10",
+    "@turf/turf": "^7.3.4",
     "axios": "^1.13.2",
     "expo": "~54.0.31",
     "expo-constants": "~18.0.13",

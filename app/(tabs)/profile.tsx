@@ -71,6 +71,7 @@ export default function ProfileTab() {
           style={styles.menuItem} 
           onPress={() => router.push('/edit-profile')}
         >
+          
           <View style={styles.menuLeft}>
             <Ionicons name="person-outline" size={24} color="#1F222A" />
             <Text style={styles.menuText}>Thông tin cá nhân</Text>

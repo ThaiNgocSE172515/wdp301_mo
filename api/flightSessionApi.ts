@@ -1,9 +1,54 @@
-import axiosClient from './axiosClient'; // Đổi đường dẫn này cho khớp với vị trí file axiosClient của bạn nhé
+import axiosClient from './axiosClient';
 
+// --- ĐỊNH NGHĨA KIỂU DỮ LIỆU ---
+export interface Pilot {
+  _id: string;
+  email: string;
+  profile?: {
+    fullName?: string;
+    avatar?: string;
+  };
+}
+
+export interface Drone {
+  _id: string;
+  serialNumber: string;
+  model: string;
+  droneId: string;
+}
+
+export interface FlightSession {
+  _id: string;
+  drone: Drone;
+  pilot: Pilot;
+  sessionType: 'PLANNED' | 'FREE_FLIGHT';
+  status: 'STARTING' | 'IN_PROGRESS' | 'COMPLETED' | 'ABORTED' | 'EMERGENCY_LANDED';
+  actualStart?: string;
+  actualEnd?: string;
+  createdAt: string;
+  updatedAt: string;
+  actualRoute?: {
+    type: string;
+    coordinates: number[][];
+  };
+}
+
+export interface FlightSessionResponse {
+  data: FlightSession[];
+  pagination: {
+    currentPage: number;
+    totalPages: number;
+    totalCount: number;
+    limit: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+  };
+}
+
+// --- API IMPLEMENTATION ---
 export const flightSessionApi = {
   // 1. POST: Bắt đầu bay tự do
   startFreeFlight: async (droneId: string) => {
-    // Axios tự động parse JSON nên ta chỉ cần gọi .data
     const response = await axiosClient.post('/flight-sessions/free-flight', { droneId });
     return response.data;
   },
@@ -11,11 +56,11 @@ export const flightSessionApi = {
   // 2. GET: Lấy danh sách phiên bay (có phân trang/filter)
   getSessions: async (status?: string, sessionType?: string, page = 1, limit = 10) => {
     const response = await axiosClient.get('/flight-sessions', {
-      params: { // Truyền query params qua config 'params' của axios rất tiện
+      params: { 
         page,
         limit,
-        ...(status && { status }),             // Chỉ truyền lên nếu có giá trị
-        ...(sessionType && { sessionType }),   // Chỉ truyền lên nếu có giá trị
+        ...(status && { status }),             
+        ...(sessionType && { sessionType }),   
       }
     });
     return response.data;

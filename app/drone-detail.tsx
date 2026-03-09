@@ -162,14 +162,14 @@ export default function DroneDetailScreen() {
           </View>
         </View>
 
-        <TouchableOpacity
+        {/* <TouchableOpacity
           style={styles.connectButton}
           activeOpacity={0.8}
           onPress={() => handleNavigation()}
         >
           <Ionicons name="wifi" size={24} color="#FFF" />
           <Text style={styles.connectButtonText}>Connect</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
 
 
         {/* --- 6. Chủ sở hữu--- */}
