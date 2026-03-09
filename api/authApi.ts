@@ -18,16 +18,31 @@ export interface UserData {
   role: string;
   profile: {          
     fullName: string;
+    avatar?: string; 
+    phone?: string;  
   };
 }
 
-const authApi ={
-    register: (data: RegisterPayload) =>{
-        return axiosClient.post('/auth/register', data);
-    },
-
-    login: (data: LoginPayload) =>{
-        return axiosClient.post('/auth/login', data);
-    }
+export interface UpdateInfo {
+  fullName?: string;
+  phone?: string;
+  avatar?: string;
 }
+const authApi = {
+  register: (data: RegisterPayload) => {
+    return axiosClient.post('/auth/register', data);
+  },
+
+  login: (data: LoginPayload) => {
+    return axiosClient.post('/auth/login', data);
+  },
+
+  info: () => {
+    return axiosClient.get('/users/me');
+  },
+  updateInfo: (data: UpdateInfo) => {
+    return axiosClient.patch('/users/me', data);
+  }
+};
+
 export default authApi;
