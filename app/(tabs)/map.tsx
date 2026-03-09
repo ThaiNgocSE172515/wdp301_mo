@@ -1,362 +1,235 @@
+import droneApi from '@/api/droneApi';
+import { flightSessionApi } from '@/api/flightSessionApi';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Mapbox from "@rnmapbox/maps";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { StatusBar, StyleSheet, Text, View } from "react-native";
-import io from "socket.io-client";
-import zoneApi from "../../api/zoneApi"; // <-- Đảm bảo import đúng đường dẫn api của bạn
+import { ActivityIndicator, Alert, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { io, Socket } from "socket.io-client";
 
-const SOCKET_URL = "http://192.168.2.106:3000";
-// const SOCKET_URL = "http://192.168.137.1:3000";
-
-const socket = io(SOCKET_URL, { transports: ["websocket"] });
-
-// --- TYPES & DATA ---
-// Cập nhật type từ API: 'no_fly' thay vì 'forbidden'
-type ZoneType = "no_fly" | "restricted"; 
-type Coordinate = { latitude: number; longitude: number };
-type Zone = { id: string; coordinates: Coordinate[]; type: ZoneType };
+// 🔥 CẤU HÌNH 2 IP CHO 2 SOCKET KHÁC NHAU
+const SIMULATOR_URL = "http://192.168.1.12:3001"; // Nguồn 1: Giả lập (Lấy tọa độ bay real-time)
+const REAL_BE_URL = "http://192.168.1.12:3000";   // Nguồn 2: Backend Sếp Duy (Nhận cảnh báo, kết thúc)
 
 type DroneState = {
   droneId: string;
   lat: number;
   lng: number;
   altitude: number;
-};
-
-// Hàm kiểm tra điểm trong đa giác
-const isPointInPolygon = (point: Coordinate, vs: Coordinate[]) => {
-  const x = point.latitude,
-    y = point.longitude;
-  let inside = false;
-  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-    const xi = vs[i].latitude,
-      yi = vs[i].longitude;
-    const xj = vs[j].latitude,
-      yj = vs[j].longitude;
-    const intersect =
-      yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
-    if (intersect) inside = !inside;
-  }
-  return inside;
+  speed: number;
+  heading: number;
+  batteryLevel: number;
 };
 
 export default function MapViewerScreen() {
+  const router = useRouter();
   const cameraRef = useRef<Mapbox.Camera>(null);
+  
+  const params = useLocalSearchParams();
+  const sessionId = params.sessionId as string;
+  const connectedMongoId = (params.connectedDroneId || params.droneId) as string;
 
-  // Thay đổi: Bắt đầu với mảng rỗng thay vì INITIAL_ZONES
-  const [zones, setZones] = useState<Zone[]>([]);
-  const [drone, setDrone] = useState<DroneState | null>(null);
+  const [drones, setDrones] = useState<Record<string, DroneState>>({});
+  const [isEnding, setIsEnding] = useState(false);
 
-  // --- FETCH API ZONES ---
+  const [simulatorDroneId, setSimulatorDroneId] = useState<string>(''); 
+  const [droneModel, setDroneModel] = useState<string>('Đang kết nối...');
+
+  // Lưu 2 Refs để dọn dẹp khi thoát màn hình
+  const simSocketRef = useRef<Socket | null>(null);
+  const beSocketRef = useRef<Socket | null>(null);
+
+  // 1. TẢI DATA BAN ĐẦU VÀ IN LOG CHO SẾP COPY
   useEffect(() => {
-    const fetchZones = async () => {
+    const initData = async () => {
       try {
-        // Lấy danh sách zones đang active, giới hạn 100 vùng
-        const response = await zoneApi.getAll({ limit: 100, status: 'active' });
+        const dRes = await droneApi.getAll();
+        const myDrone = dRes.data.find((d: any) => d._id === connectedMongoId);
         
-        const formattedZones: Zone[] = response.data.data.map((item: any) => ({
-          id: item._id,
-          type: item.type as ZoneType,
-          coordinates: item.geometry.coordinates[0].map((coord: number[]) => ({
-            longitude: coord[0],
-            latitude: coord[1],
-          })),
-        }));
-
-        setZones(formattedZones);
-      } catch (error) {
-        console.error("Lỗi khi tải danh sách zones:", error);
+        if (myDrone) {
+          setSimulatorDroneId(myDrone.droneId);
+          setDroneModel(myDrone.model);
+          
+          // 🔥 ĐOẠN NÀY IN LOG RA TERMINAL CHO SẾP COPY ĐÂY Ạ 🔥
+          console.log("\n=======================================================");
+          console.log("🚀 LẤY MÃ NÀY DÁN VÀO WEB GIẢ LẬP NHÉ SẾP NGỌC:");
+          console.log(`👉 DRONE ID:    ${myDrone.droneId}`);
+          console.log(`👉 SESSION ID:  ${sessionId}`);
+          console.log("=======================================================\n");
+        }
+      } catch (e) { 
+        console.log("Lỗi tải data:", e); 
       }
     };
+    
+    if (connectedMongoId && sessionId) {
+      initData();
+    }
+  }, [connectedMongoId, sessionId]);
 
-    fetchZones();
-  }, []);
-
+  // 2. CHẠY SONG SONG 2 SOCKET
   useEffect(() => {
-    const handleDronePos = (data: any) => {
-      if (!data?.droneId) return;
-      const newDrone = {
-        droneId: String(data.droneId),
-        lat: parseFloat(data.lat),
-        lng: parseFloat(data.lng),
-        altitude: parseFloat(data.altitude ?? 0),
-      };
+    let simSocket: Socket;
+    let beSocket: Socket;
 
-      setDrone(newDrone);
+    const connectSockets = async () => {
+      const JWT_TOKEN = await AsyncStorage.getItem('ACCESS_TOKEN');
 
-      cameraRef.current?.setCamera({
-        centerCoordinate: [newDrone.lng, newDrone.lat],
-        animationDuration: 800,
+      // ========================================================
+      // 🟢 VÒI 1: KẾT NỐI VÀO GIẢ LẬP (PORT 3001) ĐỂ VẼ BẢN ĐỒ
+      // ========================================================
+      simSocket = io(SIMULATOR_URL, { transports: ["websocket"] });
+      simSocketRef.current = simSocket;
+
+      simSocket.on("connect", () => console.log("🚀 Vòi 1: Đã thông ống với Giả lập!"));
+
+      simSocket.on("drone:position", (data) => {
+        if (!data) return;
+        const dId = data.droneId || simulatorDroneId;
+
+        setDrones(prev => {
+          const prevDrone = prev[dId];
+          const updated = {
+            droneId: dId,
+            lat: parseFloat(data.lat),
+            lng: parseFloat(data.lng),
+            altitude: parseFloat(data.altitude ?? prevDrone?.altitude ?? 0),
+            speed: parseFloat(data.speed ?? prevDrone?.speed ?? 0),
+            heading: parseFloat(data.heading ?? prevDrone?.heading ?? 0),
+            batteryLevel: parseFloat(data.batteryLevel ?? prevDrone?.batteryLevel ?? 100),
+          };
+          return { ...prev, [dId]: updated };
+        });
+
+        if (dId === simulatorDroneId && cameraRef.current) {
+          cameraRef.current.setCamera({
+            centerCoordinate: [parseFloat(data.lng), parseFloat(data.lat)],
+            animationDuration: 500,
+          });
+        }
+      });
+
+      // ========================================================
+      // 🔵 VÒI 2: KẾT NỐI VÀO REAL BE (PORT 3000)
+      // ========================================================
+      beSocket = io(REAL_BE_URL, {
+        path: "/ws",
+        auth: { token: JWT_TOKEN },
+        transports: ["websocket"]
+      });
+      beSocketRef.current = beSocket;
+
+      beSocket.on("connect", () => {
+        console.log("✅ Vòi 2: Đã thông vào hệ thống Real BE của Sếp Duy!");
+        if (sessionId) {
+          beSocket.emit("watch_session", { sessionId: sessionId });
+        }
+      });
+
+      beSocket.on("alert", (alertData) => {
+        Alert.alert("🚨 CẢNH BÁO HỆ THỐNG", alertData.message);
       });
     };
 
-    socket.on("drone:position", handleDronePos);
+    if (sessionId && simulatorDroneId) connectSockets();
 
     return () => {
-      socket.off("drone:position", handleDronePos);
+      if (simSocketRef.current) simSocketRef.current.disconnect();
+      if (beSocketRef.current) beSocketRef.current.disconnect();
     };
-  }, []);
+  }, [sessionId, simulatorDroneId]);
 
-  const currentStatus = useMemo(() => {
-    if (!drone || zones.length === 0) return "SAFE";
-    const p = { latitude: drone.lat, longitude: drone.lng };
-    const hitZone = zones.find((z) => isPointInPolygon(p, z.coordinates));
-    if (!hitZone) return "SAFE";
-    
-    return hitZone.type === "no_fly" ? "FORBIDDEN" : "RESTRICTED";
-  }, [drone, zones]);
+  // 3. LOGIC KẾT THÚC PHIÊN BAY
+  const handleEndFlight = async () => {
+    if (!sessionId) return;
+    Alert.alert("Xác nhận", "Kết thúc chuyến bay này?", [
+      { text: "Hủy", style: "cancel" },
+      { text: "Kết thúc", style: "destructive", onPress: async () => {
+          try {
+            setIsEnding(true);
+            await flightSessionApi.endSession(sessionId); // API gọi lên BE Sếp Duy
+            router.back();
+          } catch (error) { 
+            console.log("Lỗi End Session:", error);
+            router.back(); 
+          }
+        }
+      }
+    ]);
+  };
 
-  const zonesGeoJSON = useMemo(
-    () => ({
-      type: "FeatureCollection",
-      features: zones.map((z) => ({
-        type: "Feature",
-        properties: { id: z.id, type: z.type },
-        geometry: {
-          type: "Polygon",
-          coordinates: [
-            [
-              ...z.coordinates.map((c) => [c.longitude, c.latitude]),
-              [z.coordinates[0].longitude, z.coordinates[0].latitude],
-            ],
-          ],
-        },
-      })),
-    }),
-    [zones],
-  );
-
-  const droneGeoJSON = useMemo(() => {
-    if (!drone) return null;
+  const dronesGeoJSON = useMemo(() => {
+    const list = Object.values(drones);
+    if (list.length === 0) return null;
     return {
       type: "FeatureCollection",
-      features: [
-        {
-          type: "Feature",
-          properties: { ...drone, status: currentStatus },
-          geometry: { type: "Point", coordinates: [drone.lng, drone.lat] },
-        },
-      ],
+      features: list.map(d => ({
+        type: "Feature",
+        properties: { ...d, isConnected: d.droneId === simulatorDroneId },
+        geometry: { type: "Point", coordinates: [d.lng, d.lat] },
+      })),
     };
-  }, [drone, currentStatus]);
+  }, [drones, simulatorDroneId]);
 
-  const getStatusColor = () => {
-    if (currentStatus === "FORBIDDEN") return "#FF5252";
-    if (currentStatus === "RESTRICTED") return "#FFD740";
-    return "#69F0AE";
-  };
+  const currentDrone = drones[simulatorDroneId] || { speed: 0, altitude: 0, heading: 0, batteryLevel: 100 };
 
   return (
     <View style={styles.container}>
-      <StatusBar
-        translucent
-        barStyle="light-content"
-        backgroundColor="transparent"
-      />
-      <Mapbox.MapView
-        style={styles.map}
-        styleURL={Mapbox.StyleURL.SatelliteStreet}
-        logoEnabled={false}
-        compassEnabled
-        compassViewPosition={3}
-        surfaceView
-        pitchEnabled={true}
-        rotateEnabled={true}
-        projection="globe"
-        
-      >
+      <StatusBar translucent barStyle="light-content" backgroundColor="transparent" />
+      <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+        <Ionicons name="arrow-back" size={24} color="#333" />
+      </TouchableOpacity>
 
-        <Mapbox.Camera
-          ref={cameraRef}
-          defaultSettings={{
-            centerCoordinate: [106.81809, 10.82615],
-            zoomLevel: 15.5,
-            pitch: 60,
-            heading: -166,
-          }}
-          animationMode="flyTo"
-        />
-
-
-        <Mapbox.RasterDemSource
-          id="mapbox-dem"
-          url="mapbox://mapbox.mapbox-terrain-dem-v1"
-          tileSize={512}
-          maxZoomLevel={14}
-        />
-
-        <Mapbox.Terrain sourceID="mapbox-dem" style={{ exaggeration: 1.5 }} />
-
-        <Mapbox.SkyLayer
-          id="sky"
-          style={{
-            skyType: "atmosphere",
-            skyAtmosphereSun: [0.0, 90.0],
-            skyAtmosphereSunIntensity: 15.0,
-          }}
-        />
-
-        <Mapbox.FillExtrusionLayer
-          id="3d-buildings"
-          sourceID="composite"
-          sourceLayerID="building"
-          minZoomLevel={14}
-          maxZoomLevel={22}
-          filter={["==", "extrude", "true"]}
-          style={{
-            fillExtrusionColor: "#a29e9e",
-            fillExtrusionHeight: ["get", "height"],
-            fillExtrusionBase: ["get", "min_height"],
-            fillExtrusionOpacity: 1,
-            fillExtrusionVerticalGradient: true,
-            fillExtrusionAmbientOcclusionIntensity: 0.3,
-          }}
-        />
-
-        {/* 5. ZONES LAYER */}
-        {/* Render Mapbox Layer chỉ khi zonesGeoJSON có dữ liệu */}
-        {zones.length > 0 && (
-          <Mapbox.ShapeSource id="zones" shape={zonesGeoJSON as any}>
-            <Mapbox.FillLayer
-              id="zones-fill"
-              style={{
-                fillAntialias: true,
-                fillColor: [
-                  "match",
-                  ["get", "type"],
-                  "no_fly", // Cập nhật từ 'forbidden' sang 'no_fly'
-                  "rgba(220, 20, 60, 0.8)", // Đỏ đậm
-                  "restricted",
-                  "rgba(255, 191, 0, 0.8)", // Vàng đậm
-                  "rgba(128, 128, 128, 0.5)", // <--- DEFAULT VALUE
-                ],
-                fillOutlineColor: [
-                  "match",
-                  ["get", "type"],
-                  "no_fly",
-                  "#b71c1c",
-                  "restricted",
-                  "#e65100",
-                  "gray",
-                ],
-              }}
-            />
-            <Mapbox.LineLayer
-              id="zones-line-thick"
-              style={{
-                lineColor: [
-                  "match",
-                  ["get", "type"],
-                  "no_fly",
-                  "#b71c1c",
-                  "restricted",
-                  "#e65100",
-                  "gray",
-                ],
-                lineWidth: 2,
-                lineBlur: 0.5,
-              }}
-            />
-          </Mapbox.ShapeSource>
-        )}
-
-        {/* 6. DRONE LAYER */}
-        {droneGeoJSON && (
-          <Mapbox.ShapeSource id="drone" shape={droneGeoJSON as any}>
+      <Mapbox.MapView style={styles.map} styleURL={Mapbox.StyleURL.SatelliteStreet}>
+        <Mapbox.Camera ref={cameraRef} defaultSettings={{ centerCoordinate: [106.81809, 10.82615], zoomLevel: 16 }} />
+        {dronesGeoJSON && (
+          <Mapbox.ShapeSource id="drones" shape={dronesGeoJSON as any}>
             <Mapbox.CircleLayer
               id="drone-circle"
               style={{
-                circleRadius: 10,
-                circleColor: getStatusColor(),
-                circleStrokeColor: "#ffffff",
+                circleRadius: 12,
+                circleColor: "#69F0AE",
+                circleStrokeColor: ["case", ["==", ["get", "isConnected"], true], "#00E5FF", "#ffffff"],
                 circleStrokeWidth: 3,
-                circlePitchAlignment: "map",
-              }}
-            />
-            <Mapbox.CircleLayer
-              id="drone-center-dot"
-              style={{
-                circleRadius: 3,
-                circleColor: "white",
-                circlePitchAlignment: "map",
               }}
             />
           </Mapbox.ShapeSource>
         )}
       </Mapbox.MapView>
 
-      {currentStatus !== "SAFE" && (
-        <View
-          style={[
-            styles.banner,
-            {
-              backgroundColor:
-                currentStatus === "FORBIDDEN" ? "#D32F2F" : "#FBC02D",
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.bannerText,
-              { color: currentStatus === "FORBIDDEN" ? "white" : "black" },
-            ]}
-          >
-            {currentStatus === "FORBIDDEN"
-              ? "⛔ VÙNG CẤM BAY"
-              : "⚠️ VÙNG HẠN CHẾ"}
-          </Text>
+      {/* PANEL ĐIỀU KHIỂN */}
+      <View style={styles.bottomPanel}>
+        <Text style={styles.droneModelName}>{droneModel}</Text>
+        <View style={styles.subHeaderPanel}>
+          <Text style={styles.infoText}>ID: <Text style={{fontWeight: 'bold'}}>{simulatorDroneId}</Text></Text>
+          <Text style={{color: '#4CAF50', fontWeight: 'bold'}}>{currentDrone.batteryLevel}% 🔋</Text>
         </View>
-      )}
+        <View style={styles.telemetryRow}>
+          <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.speed}</Text><Text style={styles.telemetryLabel}>Tốc độ</Text></View>
+          <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.altitude}</Text><Text style={styles.telemetryLabel}>Độ cao</Text></View>
+          <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.heading}°</Text><Text style={styles.telemetryLabel}>Hướng</Text></View>
+        </View>
+        <TouchableOpacity style={styles.endBtn} onPress={handleEndFlight} disabled={isEnding}>
+          {isEnding ? <ActivityIndicator color="white" /> : <Text style={styles.endBtnText}>KẾT THÚC BAY</Text>}
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
-export const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" }, // Nền đen để load map đỡ chói
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#000" },
   map: { flex: 1 },
-  hudContainer: {
-    position: "absolute",
-    bottom: 40,
-    left: 0,
-    right: 0,
-    alignItems: "center",
-  },
-  hud: {
-    backgroundColor: "rgba(20, 20, 30, 0.85)",
-    borderRadius: 16,
-    padding: 12,
-    width: "90%",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
-  },
-  hudTitle: {
-    color: "#fff",
-    fontWeight: "800",
-    fontSize: 14,
-    marginBottom: 6,
-    textAlign: "center",
-    letterSpacing: 1,
-  },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 2,
-  },
-  label: { color: "#ccc", fontSize: 12 },
-  val: {
-    color: "#fff",
-    fontSize: 13,
-    fontFamily: "monospace",
-    fontWeight: "bold",
-  },
-  banner: {
-    position: "absolute",
-    top: 50,
-    alignSelf: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 20,
-    elevation: 10,
-    zIndex: 999,
-  },
-  bannerText: { fontWeight: "900", fontSize: 14 },
+  backBtn: { position: 'absolute', top: 50, left: 20, zIndex: 10, backgroundColor: 'white', padding: 10, borderRadius: 20 },
+  bottomPanel: { position: 'absolute', bottom: 20, left: 20, right: 20, backgroundColor: 'white', borderRadius: 20, padding: 20, elevation: 10 },
+  droneModelName: { fontSize: 18, fontWeight: 'bold', color: '#1F222A', marginBottom: 5 },
+  subHeaderPanel: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
+  infoText: { fontSize: 13, color: '#888' },
+  telemetryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
+  telemetryBox: { alignItems: 'center', flex: 1 },
+  telemetryValue: { fontSize: 16, fontWeight: 'bold' },
+  telemetryLabel: { fontSize: 10, color: '#AAA' },
+  endBtn: { backgroundColor: '#FF3B30', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  endBtnText: { color: 'white', fontWeight: 'bold' }
 });

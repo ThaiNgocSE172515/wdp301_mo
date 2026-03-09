@@ -26,6 +26,7 @@ export default function DroneDetailScreen() {
         setLoading(true);
         const response = await droneApi.getDetail(id);
         console.log("Detail Data:", response.data);
+        console.log("😊id:", response.data.droneId)
         setDrone(response.data);
       } catch (error) {
         console.error(error);
