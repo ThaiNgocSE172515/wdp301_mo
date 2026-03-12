@@ -10,8 +10,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { io, Socket } from "socket.io-client";
 
-const SIMULATOR_URL = "http://10.139.229.139:3001";
-const REAL_BE_URL = "http://10.139.229.139:3000";
+// const SIMULATOR_URL = "http://10.139.229.139:3001";
+// const REAL_BE_URL = "http://10.139.229.139:3000";
+
+const SIMULATOR_URL = "http://192.168.1.207:3001";
+const REAL_BE_URL = "http://192.168.1.207:3000";
 
 type DroneState = {
   droneId: string;

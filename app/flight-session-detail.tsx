@@ -1,14 +1,15 @@
 import { FlightSession, flightSessionApi } from '@/api/flightSessionApi';
 import { Ionicons } from '@expo/vector-icons';
+import Mapbox from "@rnmapbox/maps";
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -68,6 +69,8 @@ export default function FlightSessionDetailScreen() {
     }
   };
 
+  const routeCoordinates = detail.actualRoute?.coordinates || [];
+
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={styles.header}>
@@ -123,28 +126,91 @@ export default function FlightSessionDetailScreen() {
           </View>
         </View>
 
-        {detail.actualRoute?.coordinates && detail.actualRoute.coordinates.length > 0 && (
+        {routeCoordinates.length > 0 && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Dữ liệu đường bay (Toạ độ)</Text>
-            <Text style={{ color: '#666', marginBottom: 12 }}>
-              Tổng số điểm lưu: <Text style={{fontWeight: 'bold'}}>{detail.actualRoute.coordinates.length}</Text>
-            </Text>
+            <Text style={styles.cardTitle}>Đường bay thực tế</Text>
             
-            {/* Vùng hiển thị danh sách tọa độ có thể cuộn (Scroll) */}
-            <View style={styles.coordinatesContainer}>
-              <ScrollView nestedScrollEnabled style={{ maxHeight: 250 }} showsVerticalScrollIndicator={true}>
-                {detail.actualRoute.coordinates.map((coord, index) => (
-                  <View key={index} style={styles.coordItem}>
-                    <Text style={styles.coordIndex}>#{index + 1}</Text>
-                    <Text style={styles.coordText}>
-                      <Text style={{color: '#007AFF'}}>Lng:</Text> {coord[0].toFixed(6)}  -  
-                      <Text style={{color: '#34C759'}}> Lat:</Text> {coord[1].toFixed(6)}
-                    </Text>
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
+            <View style={styles.mapContainer}>
+              <Mapbox.MapView 
+                style={styles.map} 
+                styleURL={Mapbox.StyleURL.SatelliteStreet}
+              >
+                <Mapbox.Camera
+                  defaultSettings={{
+                    centerCoordinate: routeCoordinates[0],
+                    zoomLevel: 15, 
+                  }}
+                />
 
+                {/* Vẽ đường bay */}
+                <Mapbox.ShapeSource
+                  id="flightRoute"
+                  shape = {{
+                    type: 'Feature',
+                    geometry: {
+                      type: 'LineString',
+                      coordinates: routeCoordinates,
+                    },
+                  }}
+                >
+                  <Mapbox.LineLayer
+                    id="routeLineLayer"
+                    style={{
+                      lineColor: '#00E5FF',
+                      lineWidth: 4,
+                      lineJoin: 'round',
+                      lineCap: 'round',
+                    }}
+                  />
+                </Mapbox.ShapeSource>
+                
+                {/* Đánh dấu và ghi chú Điểm Đầu / Điểm Cuối */}
+                <Mapbox.ShapeSource
+                  id="startEndPoints"
+                  shape={{
+                    type: 'FeatureCollection',
+                    features: [
+                      {
+                        type: 'Feature',
+                        properties: { type: 'start', label: 'Điểm đầu' },
+                        geometry: { type: 'Point', coordinates: routeCoordinates[0] }
+                      },
+                      {
+                        type: 'Feature',
+                        properties: { type: 'end', label: 'Điểm cuối' },
+                        geometry: { type: 'Point', coordinates: routeCoordinates[routeCoordinates.length - 1] }
+                      }
+                    ]
+                  }}
+                >
+                  {/* Vẽ dấu chấm */}
+                  <Mapbox.CircleLayer
+                    id="pointsCircle"
+                    style={{
+                      circleRadius: 8,
+                      circleColor: ['match', ['get', 'type'], 'start', '#34C759', 'end', '#FF3B30', '#000'],
+                      circleStrokeWidth: 2,
+                      circleStrokeColor: '#FFFFFF'
+                    }}
+                  />
+                  {/* Vẽ text ghi chú ngay dưới dấu chấm */}
+                  <Mapbox.SymbolLayer
+                    id="pointsText"
+                    style={{
+                      textField: ['get', 'label'], // Lấy giá trị label từ properties
+                      textSize: 13,
+                      textColor: '#FFFFFF',
+                      textHaloColor: '#000000', // Viền đen để chữ nổi bật trên nền bản đồ
+                      textHaloWidth: 1.5,
+                      textAnchor: 'top',
+                      textOffset: [0, 0.8], // Đẩy chữ xuống dưới chấm tròn 1 chút
+                      textAllowOverlap: true,
+                    }}
+                  />
+                </Mapbox.ShapeSource>
+
+              </Mapbox.MapView>
+            </View>
           </View>
         )}
       </ScrollView>
@@ -210,32 +276,15 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'right',
   },
-  
-  // Styles mới cho phần danh sách tọa độ
-  coordinatesContainer: {
-    backgroundColor: '#F5F7FA',
-    borderRadius: 10,
+  mapContainer: {
+    height: 350, 
+    width: '100%',
+    borderRadius: 12,
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#EAEAEA',
-    overflow: 'hidden', // Để bo góc hoạt động tốt với ScrollView
   },
-  coordItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EAEAEA',
-  },
-  coordIndex: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#888',
-    width: 40,
-  },
-  coordText: {
-    fontSize: 13,
-    color: '#333',
-    fontWeight: '500',
+  map: {
+    flex: 1,
   },
 });
