@@ -13,8 +13,8 @@ import { io, Socket } from "socket.io-client";
 // const SIMULATOR_URL = "http://10.139.229.139:3001";
 // const REAL_BE_URL = "http://10.139.229.139:3000";
 
-const SIMULATOR_URL = "http://192.168.1.207:3001";
-const REAL_BE_URL = "http://192.168.1.207:3000";
+const SIMULATOR_URL = "http://192.168.2.106:3001";
+const REAL_BE_URL = "http://192.168.2.106:3000";
 
 type DroneState = {
   droneId: string;
@@ -44,7 +44,7 @@ export default function MapViewerScreen() {
   const [zones, setZones] = useState<any[]>([]);
   const zonesRef = useRef<any[]>([]);
   const [warningZone, setWarningZone] = useState<{ name: string, type: string } | null>(null);
-  
+
   // 🔥 Dùng để nhớ xem đã bật Alert cho zone này chưa (tránh spam Alert liên tục)
   const lastWarningZoneRef = useRef<string | null>(null);
 
@@ -71,7 +71,7 @@ export default function MapViewerScreen() {
 
         const zRes = await zoneApi.getAll({ limit: 100 });
         // Lấy data an toàn đề phòng API trả về cấu trúc bọc 2 lớp data
-        const zoneList = zRes.data?.data || zRes.data || []; 
+        const zoneList = zRes.data?.data || zRes.data || [];
         if (Array.isArray(zoneList)) {
           setZones(zoneList);
           zonesRef.current = zoneList;
@@ -139,7 +139,7 @@ export default function MapViewerScreen() {
               console.log("Turf parse error for zone:", zone.name, err);
             }
           }
-          
+
           setWarningZone(currentWarning);
 
           // // HIỆN POPUP ALERT (Chỉ hiện 1 lần duy nhất khi vừa bay vào)
@@ -179,7 +179,7 @@ export default function MapViewerScreen() {
       });
 
       beSocket.on("alert", (alertData) => {
-        Alert.alert("🚨 CẢNH BÁO", alertData.message);
+        Alert.alert("CẢNH BÁO", alertData.message);
       });
     };
 
@@ -200,9 +200,10 @@ export default function MapViewerScreen() {
           try {
             setIsEnding(true);
             await flightSessionApi.endSession(sessionId);
-            router.back();
           } catch (error) {
             console.log("Lỗi End Session:", error);
+          } finally {
+            setIsEnding(false);
             router.back();
           }
         }
@@ -254,7 +255,7 @@ export default function MapViewerScreen() {
           defaultSettings={{
             centerCoordinate: [106.81809, 10.82615],
             zoomLevel: 16,
-            pitch: 65, 
+            pitch: 65,
           }}
           heading={currentDrone.heading || 0}
         />
@@ -282,8 +283,8 @@ export default function MapViewerScreen() {
                 fillColor: [
                   "match",
                   ["get", "type"],
-                  "no_fly", "rgba(255, 59, 48, 0.4)",      
-                  "restricted", "rgba(255, 204, 0, 0.4)", 
+                  "no_fly", "rgba(255, 59, 48, 0.4)",
+                  "restricted", "rgba(255, 204, 0, 0.4)",
                   "rgba(0,0,0,0.1)"
                 ],
                 fillOutlineColor: [
@@ -307,7 +308,7 @@ export default function MapViewerScreen() {
                 circleColor: "#69F0AE",
                 circleStrokeColor: ["case", ["==", ["get", "isConnected"], true], "#00E5FF", "#ffffff"],
                 circleStrokeWidth: 3,
-                circlePitchAlignment: "map", 
+                circlePitchAlignment: "map",
               }}
             />
           </Mapbox.ShapeSource>
@@ -316,7 +317,7 @@ export default function MapViewerScreen() {
 
       <View style={styles.bottomPanel}>
         <Text style={styles.droneModelName}>{droneModel}</Text>
-        
+
         <View style={styles.subHeaderPanel}>
           <View>
             <Text style={styles.infoText}>
