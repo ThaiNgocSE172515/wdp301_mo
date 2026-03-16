@@ -1,10 +1,11 @@
 import { FlightSession, flightSessionApi } from '@/api/flightSessionApi';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import Mapbox from "@rnmapbox/maps";
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,6 +21,8 @@ export default function FlightSessionDetailScreen() {
 
   const [detail, setDetail] = useState<FlightSession | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  const [isFullScreen, setIsFullScreen] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -71,6 +74,63 @@ export default function FlightSessionDetailScreen() {
 
   const routeCoordinates = detail.actualRoute?.coordinates || [];
 
+  const renderMapbox = () => (
+    <Mapbox.MapView 
+      style={styles.map} 
+      styleURL={Mapbox.StyleURL.SatelliteStreet}
+      logoEnabled={false} 
+    >
+      <Mapbox.Camera
+        defaultSettings={{
+          centerCoordinate: routeCoordinates[0],
+          zoomLevel: 15, 
+        }}
+      />
+
+      {/* Vẽ đường bay */}
+      <Mapbox.ShapeSource
+        id="flightRoute"
+        shape={{
+          type: 'Feature',
+          geometry: {
+            type: 'LineString',
+            coordinates: routeCoordinates,
+          },
+        }}
+      >
+        <Mapbox.LineLayer
+          id="routeLineLayer"
+          style={{
+            lineColor: '#00E5FF',
+            lineWidth: 4,
+            lineJoin: 'round',
+            lineCap: 'round',
+          }}
+        />
+      </Mapbox.ShapeSource>
+      
+      {/* CẬP NHẬT: Dùng MarkerView cho Điểm Đầu */}
+      <Mapbox.MarkerView id="startPoint" coordinate={routeCoordinates[0]}>
+        <View style={styles.annotationContainer}>
+          <MaterialCommunityIcons name="quadcopter" size={32} color="#34C759" />
+          <View style={styles.annotationBadge}>
+            <Text style={styles.annotationText}>Điểm đầu</Text>
+          </View>
+        </View>
+      </Mapbox.MarkerView>
+
+      {/* CẬP NHẬT: Dùng MarkerView cho Điểm Cuối */}
+      <Mapbox.MarkerView id="endPoint" coordinate={routeCoordinates[routeCoordinates.length - 1]}>
+        <View style={styles.annotationContainer}>
+          <MaterialCommunityIcons name="quadcopter" size={32} color="#FF3B30" />
+          <View style={styles.annotationBadge}>
+            <Text style={styles.annotationText}>Điểm cuối</Text>
+          </View>
+        </View>
+      </Mapbox.MarkerView>
+    </Mapbox.MapView>
+  );
+
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
       <View style={styles.header}>
@@ -84,46 +144,17 @@ export default function FlightSessionDetailScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Thông tin chung</Text>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>Loại phiên:</Text>
-            <Text style={styles.value}>{detail.sessionType}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>Trạng thái:</Text>
-            <Text style={[styles.value, { color: getStatusColor(detail.status), fontWeight: 'bold' }]}>
-              {detail.status}
-            </Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>Bắt đầu:</Text>
-            <Text style={styles.value}>
-              {detail.actualStart ? new Date(detail.actualStart).toLocaleString() : 'N/A'}
-            </Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>Kết thúc:</Text>
-            <Text style={styles.value}>
-              {detail.actualEnd ? new Date(detail.actualEnd).toLocaleString() : 'N/A'}
-            </Text>
-          </View>
+          <View style={styles.infoRow}><Text style={styles.label}>Loại phiên:</Text><Text style={styles.value}>{detail.sessionType}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.label}>Trạng thái:</Text><Text style={[styles.value, { color: getStatusColor(detail.status), fontWeight: 'bold' }]}>{detail.status}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.label}>Bắt đầu:</Text><Text style={styles.value}>{detail.actualStart ? new Date(detail.actualStart).toLocaleString() : 'N/A'}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.label}>Kết thúc:</Text><Text style={styles.value}>{detail.actualEnd ? new Date(detail.actualEnd).toLocaleString() : 'N/A'}</Text></View>
         </View>
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Drone & Pilot</Text>
-          
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>Drone Model:</Text>
-            <Text style={styles.value}>{detail.drone?.model}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>Serial Number:</Text>
-            <Text style={styles.value}>{detail.drone?.serialNumber}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Text style={styles.label}>Pilot Email:</Text>
-            <Text style={styles.value}>{detail.pilot?.email}</Text>
-          </View>
+          <View style={styles.infoRow}><Text style={styles.label}>Drone Model:</Text><Text style={styles.value}>{detail.drone?.model}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.label}>Serial Number:</Text><Text style={styles.value}>{detail.drone?.serialNumber}</Text></View>
+          <View style={styles.infoRow}><Text style={styles.label}>Pilot Email:</Text><Text style={styles.value}>{detail.pilot?.email}</Text></View>
         </View>
 
         {routeCoordinates.length > 0 && (
@@ -131,89 +162,32 @@ export default function FlightSessionDetailScreen() {
             <Text style={styles.cardTitle}>Đường bay thực tế</Text>
             
             <View style={styles.mapContainer}>
-              <Mapbox.MapView 
-                style={styles.map} 
-                styleURL={Mapbox.StyleURL.SatelliteStreet}
+              {renderMapbox()}
+              <TouchableOpacity 
+                style={styles.expandBtn} 
+                onPress={() => setIsFullScreen(true)}
               >
-                <Mapbox.Camera
-                  defaultSettings={{
-                    centerCoordinate: routeCoordinates[0],
-                    zoomLevel: 15, 
-                  }}
-                />
-
-                {/* Vẽ đường bay */}
-                <Mapbox.ShapeSource
-                  id="flightRoute"
-                  shape = {{
-                    type: 'Feature',
-                    geometry: {
-                      type: 'LineString',
-                      coordinates: routeCoordinates,
-                    },
-                  }}
-                >
-                  <Mapbox.LineLayer
-                    id="routeLineLayer"
-                    style={{
-                      lineColor: '#00E5FF',
-                      lineWidth: 4,
-                      lineJoin: 'round',
-                      lineCap: 'round',
-                    }}
-                  />
-                </Mapbox.ShapeSource>
-                
-                {/* Đánh dấu và ghi chú Điểm Đầu / Điểm Cuối */}
-                <Mapbox.ShapeSource
-                  id="startEndPoints"
-                  shape={{
-                    type: 'FeatureCollection',
-                    features: [
-                      {
-                        type: 'Feature',
-                        properties: { type: 'start', label: 'Điểm đầu' },
-                        geometry: { type: 'Point', coordinates: routeCoordinates[0] }
-                      },
-                      {
-                        type: 'Feature',
-                        properties: { type: 'end', label: 'Điểm cuối' },
-                        geometry: { type: 'Point', coordinates: routeCoordinates[routeCoordinates.length - 1] }
-                      }
-                    ]
-                  }}
-                >
-                  {/* Vẽ dấu chấm */}
-                  <Mapbox.CircleLayer
-                    id="pointsCircle"
-                    style={{
-                      circleRadius: 8,
-                      circleColor: ['match', ['get', 'type'], 'start', '#34C759', 'end', '#FF3B30', '#000'],
-                      circleStrokeWidth: 2,
-                      circleStrokeColor: '#FFFFFF'
-                    }}
-                  />
-                  {/* Vẽ text ghi chú ngay dưới dấu chấm */}
-                  <Mapbox.SymbolLayer
-                    id="pointsText"
-                    style={{
-                      textField: ['get', 'label'], // Lấy giá trị label từ properties
-                      textSize: 13,
-                      textColor: '#FFFFFF',
-                      textHaloColor: '#000000', // Viền đen để chữ nổi bật trên nền bản đồ
-                      textHaloWidth: 1.5,
-                      textAnchor: 'top',
-                      textOffset: [0, 0.8], // Đẩy chữ xuống dưới chấm tròn 1 chút
-                      textAllowOverlap: true,
-                    }}
-                  />
-                </Mapbox.ShapeSource>
-
-              </Mapbox.MapView>
+                <Ionicons name="expand" size={22} color="#333" />
+              </TouchableOpacity>
             </View>
           </View>
         )}
       </ScrollView>
+
+      {/* MODAL FULL MÀN HÌNH */}
+      <Modal visible={isFullScreen} animationType="slide" transparent={false}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          {renderMapbox()}
+          
+          <TouchableOpacity 
+            style={[styles.closeFullScreenBtn, { top: insets.top > 0 ? insets.top + 10 : 40 }]} 
+            onPress={() => setIsFullScreen(false)}
+          >
+            <Ionicons name="close" size={28} color="#333" />
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -221,61 +195,16 @@ export default function FlightSessionDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9F9F9' },
   center: { justifyContent: 'center', alignItems: 'center' },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 15,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 15 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1F222A' },
-  backBtn: {
-    width: 40,
-    height: 40,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 2,
-  },
+  backBtn: { width: 40, height: 40, backgroundColor: '#fff', borderRadius: 10, justifyContent: 'center', alignItems: 'center', elevation: 2 },
   content: { padding: 20 },
-  card: {
-    backgroundColor: '#fff',
-    padding: 20,
-    borderRadius: 16,
-    marginBottom: 20,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 5,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1F222A',
-    marginBottom: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEE',
-    paddingBottom: 10,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-  label: {
-    fontSize: 15,
-    color: '#666',
-  },
-  value: {
-    fontSize: 15,
-    color: '#1F222A',
-    fontWeight: '500',
-    flex: 1,
-    textAlign: 'right',
-  },
+  card: { backgroundColor: '#fff', padding: 20, borderRadius: 16, marginBottom: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5, shadowOffset: { width: 0, height: 2 } },
+  cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#1F222A', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#EEE', paddingBottom: 10 },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  label: { fontSize: 15, color: '#666' },
+  value: { fontSize: 15, color: '#1F222A', fontWeight: '500', flex: 1, textAlign: 'right' },
+  
   mapContainer: {
     height: 350, 
     width: '100%',
@@ -283,8 +212,40 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: '#EAEAEA',
+    position: 'relative',
   },
   map: {
     flex: 1,
   },
+
+  expandBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    padding: 8,
+    borderRadius: 8,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  closeFullScreenBtn: {
+    position: 'absolute',
+    left: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    padding: 8,
+    borderRadius: 20,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+  },
+
+  // Styles cho Icon Drone
+  annotationContainer: { alignItems: 'center', justifyContent: 'center' },
+  annotationBadge: { backgroundColor: 'rgba(0, 0, 0, 0.7)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, marginTop: -2, borderWidth: 1, borderColor: '#444' },
+  annotationText: { color: '#FFFFFF', fontSize: 11, fontWeight: 'bold' },
 });
