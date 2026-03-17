@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ImageBackground, Alert, ActivityIndicator } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import authApi from '../../api/authApi';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomInput from '@/components/CustomInput';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, ImageBackground, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import authApi from '../../api/authApi';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -23,16 +23,25 @@ export default function LoginScreen() {
       const response = await authApi.login({ email, password });
       const resData = response.data;
       console.log('Login Result:', resData);
+
       if (resData && resData.token) {
           await AsyncStorage.setItem('ACCESS_TOKEN', resData.token);
           await AsyncStorage.setItem('USER_PROFILE', JSON.stringify(resData.user));
           console.log("Đã lưu Token và User Profile thành công!");
-          router.replace('/(tabs)');
+          console.log(resData.user.role);
+          if (resData.user.role === 'FLEET_OPERATOR') {
+            
+            router.replace('/(FleetOperator)'); 
+          } else {
+            router.replace('/(tabs)');
+          }
       } else {
           Alert.alert("Lỗi", "Không tìm thấy token trong phản hồi server.");
       }
+
     } catch (error: any) {
       const msg = error.response?.data?.message || 'Email hoặc mật khẩu không đúng';
+      console.log(error);
       Alert.alert('Đăng nhập thất bại', msg);
     } finally {
       setLoading(false);

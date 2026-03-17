@@ -13,8 +13,8 @@ import { io, Socket } from "socket.io-client";
 // const SIMULATOR_URL = "http://10.139.229.139:3001";
 // const REAL_BE_URL = "http://10.139.229.139:3000";
 
-const SIMULATOR_URL = "http://192.168.2.106:3001";
-const REAL_BE_URL = "http://192.168.2.106:3000";
+const SIMULATOR_URL = "http://192.168.137.1:3001";
+const REAL_BE_URL = "http://192.168.137.1:3000";
 
 type DroneState = {
   droneId: string;
@@ -34,6 +34,10 @@ export default function MapViewerScreen() {
   const sessionId = params.sessionId as string;
   const connectedMongoId = (params.connectedDroneId || params.droneId) as string;
 
+  // CỜ QUAN TRỌNG: Kiểm tra xem có đang trong chuyến bay không
+  // Nếu có sessionId thực sự (khác rỗng, khác undefined) thì mới là Active Flight
+  const isActiveFlight = !!sessionId && sessionId !== '';
+
   const [drones, setDrones] = useState<Record<string, DroneState>>({});
   const [isEnding, setIsEnding] = useState(false);
 
@@ -44,9 +48,6 @@ export default function MapViewerScreen() {
   const [zones, setZones] = useState<any[]>([]);
   const zonesRef = useRef<any[]>([]);
   const [warningZone, setWarningZone] = useState<{ name: string, type: string } | null>(null);
-
-  // 🔥 Dùng để nhớ xem đã bật Alert cho zone này chưa (tránh spam Alert liên tục)
-  const lastWarningZoneRef = useRef<string | null>(null);
 
   // Lưu 2 Refs để dọn dẹp khi thoát màn hình
   const simSocketRef = useRef<Socket | null>(null);
@@ -63,6 +64,8 @@ export default function MapViewerScreen() {
         if (myDrone) {
           setSimulatorDroneId(myDrone.droneId);
           setDroneModel(myDrone.model);
+          
+          // Trả lại đoạn console.log cho bạn nè:
           console.log("\n=======================================================");
           console.log(`👉 DRONE ID:    ${myDrone.droneId}`);
           console.log(`👉 SESSION ID:  ${sessionId}`);
@@ -142,21 +145,6 @@ export default function MapViewerScreen() {
 
           setWarningZone(currentWarning);
 
-          // // HIỆN POPUP ALERT (Chỉ hiện 1 lần duy nhất khi vừa bay vào)
-          // if (currentWarning) {
-          //   if (lastWarningZoneRef.current !== currentWarning.name) {
-          //     Alert.alert(
-          //       currentWarning.type === 'no_fly' ? "CẢNH BÁO: VÙNG CẤM BAY" : "⚠️ CHÚ Ý: VÙNG HẠN CHẾ",
-          //       `Drone của bạn đang đi vào khu vực: ${currentWarning.name}. Yêu cầu chuyển hướng ngay!`,
-          //       [{ text: "Đã hiểu", style: "cancel" }]
-          //     );
-          //     lastWarningZoneRef.current = currentWarning.name; // Ghi nhớ là đã cảnh báo
-          //   }
-          // } else {
-          //   // Khi bay ra khỏi vùng, reset lại để lần sau bay vào còn báo tiếp
-          //   lastWarningZoneRef.current = null;
-          // }
-
           // Cập nhật camera đi theo drone
           if (cameraRef.current) {
             cameraRef.current.setCamera({
@@ -200,6 +188,14 @@ export default function MapViewerScreen() {
           try {
             setIsEnding(true);
             await flightSessionApi.endSession(sessionId);
+            
+            // 💡 FIX LỖI CACHE CỦA TABBAR: Xóa sạch params sau khi kết thúc
+            router.setParams({ 
+              sessionId: '', 
+              connectedDroneId: '', 
+              droneId: '' 
+            });
+
           } catch (error) {
             console.log("Lỗi End Session:", error);
           } finally {
@@ -231,11 +227,16 @@ export default function MapViewerScreen() {
   return (
     <View style={styles.container}>
       <StatusBar translucent barStyle="light-content" backgroundColor="transparent" />
-      <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-        <Ionicons name="arrow-back" size={24} color="#333" />
-      </TouchableOpacity>
+      
+      {/* 💡 CHỈ HIỆN NÚT QUAY LẠI NẾU ĐANG ĐI TỪ PHIÊN BAY VÀO */}
+      {isActiveFlight && (
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color="#333" />
+        </TouchableOpacity>
+      )}
 
-      {warningZone && (
+      {/* CHỈ HIỆN CẢNH BÁO NẾU ĐANG CÓ CHUYẾN BAY */}
+      {isActiveFlight && warningZone && (
         <View style={[styles.warningBanner, { backgroundColor: warningZone.type === 'no_fly' ? 'rgba(255,59,48,0.95)' : 'rgba(255,204,0,0.95)' }]}>
           <Ionicons name="warning" size={26} color={warningZone.type === 'no_fly' ? '#FFF' : '#333'} />
           <View style={{ marginLeft: 12, flex: 1 }}>
@@ -255,7 +256,7 @@ export default function MapViewerScreen() {
           defaultSettings={{
             centerCoordinate: [106.81809, 10.82615],
             zoomLevel: 16,
-            pitch: 65,
+            pitch: 65, 
           }}
           heading={currentDrone.heading || 0}
         />
@@ -283,8 +284,8 @@ export default function MapViewerScreen() {
                 fillColor: [
                   "match",
                   ["get", "type"],
-                  "no_fly", "rgba(255, 59, 48, 0.4)",
-                  "restricted", "rgba(255, 204, 0, 0.4)",
+                  "no_fly", "rgba(255, 59, 48, 0.4)",      
+                  "restricted", "rgba(255, 204, 0, 0.4)", 
                   "rgba(0,0,0,0.1)"
                 ],
                 fillOutlineColor: [
@@ -308,37 +309,40 @@ export default function MapViewerScreen() {
                 circleColor: "#69F0AE",
                 circleStrokeColor: ["case", ["==", ["get", "isConnected"], true], "#00E5FF", "#ffffff"],
                 circleStrokeWidth: 3,
-                circlePitchAlignment: "map",
+                circlePitchAlignment: "map", 
               }}
             />
           </Mapbox.ShapeSource>
         )}
       </Mapbox.MapView>
 
-      <View style={styles.bottomPanel}>
-        <Text style={styles.droneModelName}>{droneModel}</Text>
-
-        <View style={styles.subHeaderPanel}>
-          <View>
-            <Text style={styles.infoText}>
-              Drone ID: <Text style={{ fontWeight: 'bold', color: '#333' }}>{simulatorDroneId || connectedMongoId}</Text>
-            </Text>
-            <Text style={styles.infoText}>
-              Session ID: <Text style={{ fontWeight: 'bold', color: '#333' }}>{sessionId}</Text>
-            </Text>
+      {/* 💡 CHỈ HIỆN KHUNG ĐIỀU KHIỂN & KẾT THÚC BAY NẾU ĐANG LÀ CHUYẾN BAY ACTIVE */}
+      {isActiveFlight && (
+        <View style={styles.bottomPanel}>
+          <Text style={styles.droneModelName}>{droneModel}</Text>
+          
+          <View style={styles.subHeaderPanel}>
+            <View>
+              <Text style={styles.infoText}>
+                Drone ID: <Text style={{ fontWeight: 'bold', color: '#333' }}>{simulatorDroneId || connectedMongoId}</Text>
+              </Text>
+              <Text style={styles.infoText}>
+                Session ID: <Text style={{ fontWeight: 'bold', color: '#333' }}>{sessionId}</Text>
+              </Text>
+            </View>
+            <Text style={{ color: '#4CAF50', fontWeight: 'bold' }}>{currentDrone.batteryLevel}% 🔋</Text>
           </View>
-          <Text style={{ color: '#4CAF50', fontWeight: 'bold' }}>{currentDrone.batteryLevel}% 🔋</Text>
-        </View>
 
-        <View style={styles.telemetryRow}>
-          <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.speed}</Text><Text style={styles.telemetryLabel}>Tốc độ</Text></View>
-          <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.altitude}</Text><Text style={styles.telemetryLabel}>Độ cao</Text></View>
-          <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.heading}°</Text><Text style={styles.telemetryLabel}>Hướng</Text></View>
+          <View style={styles.telemetryRow}>
+            <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.speed}</Text><Text style={styles.telemetryLabel}>Tốc độ</Text></View>
+            <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.altitude}</Text><Text style={styles.telemetryLabel}>Độ cao</Text></View>
+            <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.heading}°</Text><Text style={styles.telemetryLabel}>Hướng</Text></View>
+          </View>
+          <TouchableOpacity style={styles.endBtn} onPress={handleEndFlight} disabled={isEnding}>
+            {isEnding ? <ActivityIndicator color="white" /> : <Text style={styles.endBtnText}>KẾT THÚC BAY</Text>}
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity style={styles.endBtn} onPress={handleEndFlight} disabled={isEnding}>
-          {isEnding ? <ActivityIndicator color="white" /> : <Text style={styles.endBtnText}>KẾT THÚC BAY</Text>}
-        </TouchableOpacity>
-      </View>
+      )}
     </View>
   );
 }
