@@ -1,11 +1,10 @@
 import missionApi from '@/api/missionApi';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
-  Dimensions,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -14,20 +13,7 @@ import {
   View,
 } from 'react-native';
 
-const { width } = Dimensions.get('window');
-
-const MISSION_CATEGORIES = [
-  { id: '1', title: 'Khảo sát địa hình', count: 12, icon: 'map', bgColor: '#E3F2FD', iconColor: '#1565C0' },
-  { id: '2', title: 'Giám sát an ninh', count: 5, icon: 'shield-checkmark', bgColor: '#E8F5E9', iconColor: '#2E7D32' },
-  { id: '3', title: 'Giao hàng', count: 8, icon: 'cube', bgColor: '#FFF3E0', iconColor: '#E65100' },
-  { id: '4', title: 'Phun nông nghiệp', count: 3, icon: 'leaf', bgColor: '#FCE4EC', iconColor: '#C2185B' },
-];
-
-// --- MOCK DATA: CÁC CHUYẾN BAY HÔM NAY ---
-const TODAY_FLIGHTS = [
-  { id: 'f1', title: 'Khảo sát khu A', time: '08:30 AM', status: 'Đang bay', drone: 'Drone-X1' },
-  { id: 'f2', title: 'Giao hàng đơn #402', time: '10:00 AM', status: 'Chờ cất cánh', drone: 'Drone-D2' },
-];
+// --- MOCK DATA: Removed, using real data ---
 
 type Mission = {
   _id: string;
@@ -53,32 +39,34 @@ export default function FleetHomeScreen() {
   const [missions, setMissions] = useState<Mission[]>([]);
   const firstLetter = userName.charAt(0).toUpperCase();
 
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const jsonValue = await AsyncStorage.getItem('USER_PROFILE');
-        if (jsonValue != null) {
-          const userObj = JSON.parse(jsonValue);
-          if (userObj?.profile?.fullName) {
-            setUserName(userObj.profile.fullName);
+  useFocusEffect(
+    useCallback(() => {
+      const fetchUser = async () => {
+        try {
+          const jsonValue = await AsyncStorage.getItem('USER_PROFILE');
+          if (jsonValue != null) {
+            const userObj = JSON.parse(jsonValue);
+            if (userObj?.profile?.fullName) {
+              setUserName(userObj.profile.fullName);
+            }
           }
+        } catch (e) {
+          console.log("Lỗi lấy dữ liệu", e);
         }
-      } catch (e) {
-        console.log("Lỗi lấy dữ liệu", e);
-      }
-    };
+      };
 
-    const fetchAllMission = async () => {
-      try {
-        const response = await missionApi.getAll();
-        setMissions(response);
-      } catch (e) {
-        console.log("Lỗi lấy dữ liệu missions: ", e)
+      const fetchAllMission = async () => {
+        try {
+          const response = await missionApi.getAll();
+          setMissions(response);
+        } catch (e) {
+          console.log("Lỗi lấy dữ liệu missions: ", e)
+        }
       }
-    }
-    fetchAllMission();
-    fetchUser();
-  }, []);
+      fetchAllMission();
+      fetchUser();
+    }, [])
+  );
 
   // console.log(missions);
 
@@ -106,6 +94,7 @@ export default function FleetHomeScreen() {
       case 'IN_PROGRESS': return { color: '#2E7D32', bg: '#2E7D3220', text: 'Đang bay' };
       case 'COMPLETED': return { color: '#1565C0', bg: '#1565C020', text: 'Hoàn thành' };
       case 'DRAFT': return { color: '#E65100', bg: '#E6510020', text: 'Bản nháp' };
+      case 'SCHEDULED': return { color: '#8E24AA', bg: '#8E24AA20', text: 'Đã lên lịch' };
       default: return { color: '#757575', bg: '#75757520', text: status || 'Không rõ' };
     }
   };
@@ -123,10 +112,17 @@ export default function FleetHomeScreen() {
         {/* --- Header --- */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Missions</Text>
-          {/* Nút Avatar kèm chức năng Đăng xuất */}
-          <TouchableOpacity style={styles.avatar} onPress={handleLogout} activeOpacity={0.7}>
-            <Text style={styles.avatarText}>{firstLetter}</Text>
-          </TouchableOpacity>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 15}}>
+              <TouchableOpacity onPress={() => router.push('/(FleetOperator)/create-mission')}>
+                  <View style={styles.addBtn}>
+                      <Ionicons name="add" size={24} color="#fff" />
+                  </View>
+              </TouchableOpacity>
+              {/* Nút Avatar kèm chức năng Đăng xuất */}
+              <TouchableOpacity style={styles.avatar} onPress={handleLogout} activeOpacity={0.7}>
+                <Text style={styles.avatarText}>{firstLetter}</Text>
+              </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.greetingSection}>
@@ -134,31 +130,60 @@ export default function FleetHomeScreen() {
           <Text style={styles.welcomeText}>Quản lý kế hoạch bay & Nhiệm vụ</Text>
         </View>
 
-        {/* --- Phần Danh mục kế hoạch bay --- */}
-        <Text style={styles.sectionTitle}>Danh mục kế hoạch</Text>
-        <View style={styles.categoryGrid}>
-          {MISSION_CATEGORIES.map((cat) => (
-            <TouchableOpacity
-              key={cat.id}
-              style={styles.categoryCard}
-              activeOpacity={0.8}
-              // Chuyển hướng sang màn List, truyền theo ID hoặc Tên danh mục
-              onPress={() => router.push({ pathname: '/(FleetOperator)/mission-list', params: { categoryId: cat.id, categoryName: cat.title } })}
+        {/* --- Phần Nút Truy Cập Nhanh (Thay thế category map) --- */}
+        <View style={styles.actionGrid}>
+          <TouchableOpacity
+            style={styles.mainActionCard}
+            activeOpacity={0.8}
+            onPress={() => router.push('/(FleetOperator)/mission-list')}
+          >
+            <View style={[styles.actionIconBox, { backgroundColor: '#E3F2FD' }]}>
+              <Ionicons name="map" size={32} color="#1565C0" />
+            </View>
+            <View style={styles.actionTextContainer}>
+                <Text style={styles.actionTitle}>Tất cả Nhiệm vụ</Text>
+                <Text style={styles.actionDesc}>Quản lý và theo dõi toàn bộ nhiệm vụ bay</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={24} color="#1565C0" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 }}>
+            {/* Nút Quản lý Drone */}
+            <TouchableOpacity 
+                style={styles.subActionCard} 
+                activeOpacity={0.8}
+                onPress={() => router.push('/my-drones')}
             >
-              <View style={[styles.iconBox, { backgroundColor: cat.bgColor }]}>
-                <Ionicons name={cat.icon as any} size={28} color={cat.iconColor} />
-              </View>
-              <Text style={styles.catTitle} numberOfLines={2}>{cat.title}</Text>
-              <Text style={styles.catCount}>{cat.count} kế hoạch</Text>
+                <View style={[styles.subActionIconBox, { backgroundColor: '#E8F5E9' }]}>
+                    <Ionicons name="hardware-chip" size={28} color="#2E7D32" />
+                </View>
+                <Text style={styles.subActionTitle}>Drones</Text>
             </TouchableOpacity>
-          ))}
+
+            {/* Nút Quản lý Flight Plan */}
+            <TouchableOpacity 
+                style={styles.subActionCard} 
+                activeOpacity={0.8}
+                onPress={() => router.push('/(FleetOperator)/flight-plans')}
+            >
+                <View style={[styles.subActionIconBox, { backgroundColor: '#FFF3E0' }]}>
+                    <Ionicons name="earth" size={28} color="#E65100" />
+                </View>
+                <Text style={styles.subActionTitle}>Mẫu bay</Text>
+            </TouchableOpacity>
         </View>
 
         {/* --- Phần Danh sách chuyến bay nhanh --- */}
-        <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Chuyến bay hôm nay</Text>
+        <View style={styles.recentHeader}>
+          <Text style={styles.sectionTitle}>Chuyến bay gần đây</Text>
+          <TouchableOpacity onPress={() => router.push({ pathname: '/(FleetOperator)/mission-list', params: { categoryName: 'Tất cả Kế hoạch' } })}>
+            <Text style={styles.seeAllText}>Xem tất cả</Text>
+          </TouchableOpacity>
+        </View>
         <View style={styles.flightListContainer}>
-          {missions.map((mission, index) => (
-            <View key={index}>
+          {missions.slice(0, 5).map((mission, index) => (
+            <View key={mission._id || index}>
               <TouchableOpacity
                 style={styles.flightCard}
                 activeOpacity={0.8}
@@ -184,7 +209,7 @@ export default function FleetHomeScreen() {
               </TouchableOpacity>
 
               {/* Divider (không hiển thị ở item cuối cùng) */}
-              {index < TODAY_FLIGHTS.length - 1 && <View style={styles.divider} />}
+              {index < Math.min(missions.length, 5) - 1 && <View style={styles.divider} />}
             </View>
           ))}
         </View>
@@ -200,52 +225,52 @@ const styles = StyleSheet.create({
 
   // Header & Greeting
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 10 },
-  headerTitle: { fontSize: 25, fontWeight: '600', color: '#1F222A', left: '40%' },
+  headerTitle: { fontSize: 25, fontWeight: '600', color: '#1F222A' },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' },
   avatarText: { fontSize: 16, fontWeight: '800', color: '#ffffff', lineHeight: 16 },
+  addBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#0055FF', justifyContent: 'center', alignItems: 'center', shadowColor: '#0055FF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 4 },
   greetingSection: { marginBottom: 25 },
   userName: { fontSize: 26, fontWeight: 'bold', color: '#1F222A' },
   welcomeText: { fontSize: 14, color: '#A0A0A0', marginTop: 4 },
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#1F222A', marginBottom: 15 },
-
-  // Grid Danh mục
-  categoryGrid: {
+  
+  // Quick Action Button
+  actionGrid: { marginBottom: 15 },
+  mainActionCard: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-  },
-  categoryCard: {
-    width: (width - 60) / 2, // 2 cột, trừ đi padding 2 bên và khoảng cách giữa 2 thẻ
-    backgroundColor: '#fff',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    padding: 20,
     borderRadius: 20,
-    padding: 15,
-    marginBottom: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 10,
     elevation: 3,
   },
-  iconBox: {
-    width: 50,
-    height: 50,
-    borderRadius: 15,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 15,
+  actionIconBox: { width: 60, height: 60, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+  actionTextContainer: { flex: 1 },
+  actionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1F222A', marginBottom: 4 },
+  actionDesc: { fontSize: 13, color: '#A0A0A0', lineHeight: 20 },
+
+  subActionCard: {
+      flex: 1,
+      backgroundColor: '#ffffff',
+      padding: 15,
+      borderRadius: 16,
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.05,
+      shadowRadius: 10,
+      elevation: 3,
+      marginHorizontal: 5
   },
-  catTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#1F222A',
-    marginBottom: 5,
-  },
-  catCount: {
-    fontSize: 12,
-    color: '#A0A0A0',
-    fontWeight: '500',
-  },
+  subActionIconBox: { width: 50, height: 50, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
+  subActionTitle: { fontSize: 16, fontWeight: 'bold', color: '#1F222A' },
+
+  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#1F222A' },
+  recentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10 },
+  seeAllText: { fontSize: 14, fontWeight: '600', color: '#1565C0' },
 
   // Danh sách chuyến bay nhanh
   flightListContainer: {

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import missionApi from "../../api/missionApi";
 
@@ -12,21 +12,23 @@ export default function MissionListScreen() {
   const [missions, setMissions] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 2. Dùng useEffect để gọi API khi màn hình vừa render
-  useEffect(() => {
-    const fetchMissions = async () => {
-      try {
-        const data: any = await missionApi.getAll();
-        setMissions(data);
-      } catch (error) {
-        console.error("Lỗi khi tải danh sách mission:", error);
-      } finally {
-        setLoading(false); // Tắt loading dù thành công hay thất bại
-      }
-    };
+  useFocusEffect(
+    useCallback(() => {
+      const fetchMissions = async () => {
+        try {
+          setLoading(true);
+          const data: any = await missionApi.getAll();
+          setMissions(data);
+        } catch (error) {
+          console.error("Lỗi khi tải danh sách mission:", error);
+        } finally {
+          setLoading(false);
+        }
+      };
 
-    fetchMissions();
-  }, []);
+      fetchMissions();
+    }, [categoryName])
+  );
 
 
   const getStatusStyle = (status: any) => {
@@ -34,6 +36,7 @@ export default function MissionListScreen() {
       case 'IN_PROGRESS': return { color: '#2E7D32', bg: '#2E7D3220', text: 'Đang bay' };
       case 'COMPLETED': return { color: '#1565C0', bg: '#1565C020', text: 'Hoàn thành' };
       case 'DRAFT': return { color: '#E65100', bg: '#E6510020', text: 'Bản nháp' };
+      case 'SCHEDULED': return { color: '#8E24AA', bg: '#8E24AA20', text: 'Đã lên lịch' };
       default: return { color: '#757575', bg: '#75757520', text: status || 'Không rõ' };
     }
   };
