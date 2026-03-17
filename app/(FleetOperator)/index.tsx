@@ -1,16 +1,17 @@
+import missionApi from '@/api/missionApi';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    Dimensions,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Dimensions,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 const { width } = Dimensions.get('window');
@@ -28,9 +29,28 @@ const TODAY_FLIGHTS = [
   { id: 'f2', title: 'Giao hàng đơn #402', time: '10:00 AM', status: 'Chờ cất cánh', drone: 'Drone-D2' },
 ];
 
+type Mission = {
+  _id: string;
+  name: string;
+  description: string;
+  createdBy: {
+    profile: {
+      fullName: string;
+    };
+    _id: string;
+    email: string;
+    role: "FLEET_OPERATOR" | string;
+  };
+  status: "DRAFT" | "ACTIVE" | "COMPLETED" | string;
+  createdAt: string; // hoặc Date nếu bạn parse
+  updatedAt: string; // hoặc Date
+  __v: number;
+};
+
 export default function FleetHomeScreen() {
   const router = useRouter();
   const [userName, setUserName] = useState('Fleet Operator');
+  const [missions, setMissions] = useState<Mission[]>([]);
   const firstLetter = userName.charAt(0).toUpperCase();
 
   useEffect(() => {
@@ -47,8 +67,20 @@ export default function FleetHomeScreen() {
         console.log("Lỗi lấy dữ liệu", e);
       }
     };
+
+    const fetchAllMission = async () => {
+      try {
+        const response = await missionApi.getAll();
+        setMissions(response);
+      } catch (e) {
+        console.log("Lỗi lấy dữ liệu missions: ", e)
+      }
+    }
+    fetchAllMission();
     fetchUser();
   }, []);
+
+  // console.log(missions);
 
   // Hàm xử lý đăng xuất
   const handleLogout = () => {
@@ -57,9 +89,9 @@ export default function FleetHomeScreen() {
       "Bạn có chắc chắn muốn thoát tài khoản?",
       [
         { text: "Hủy", style: "cancel" },
-        { 
-          text: "Đăng xuất", 
-          style: "destructive", 
+        {
+          text: "Đăng xuất",
+          style: "destructive",
           onPress: async () => {
             await AsyncStorage.clear();
             router.replace('/(auth)/login');
@@ -69,10 +101,25 @@ export default function FleetHomeScreen() {
     );
   };
 
+  const getStatusStyle = (status: any) => {
+    switch (status) {
+      case 'IN_PROGRESS': return { color: '#2E7D32', bg: '#2E7D3220', text: 'Đang bay' };
+      case 'COMPLETED': return { color: '#1565C0', bg: '#1565C020', text: 'Hoàn thành' };
+      case 'DRAFT': return { color: '#E65100', bg: '#E6510020', text: 'Bản nháp' };
+      default: return { color: '#757575', bg: '#75757520', text: status || 'Không rõ' };
+    }
+  };
+
+  const formatDate = (isoString: any) => {
+    if (!isoString) return 'Chưa có ngày';
+    const date = new Date(isoString);
+    return date.toLocaleDateString('vi-VN');
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
+
         {/* --- Header --- */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Missions</Text>
@@ -91,9 +138,9 @@ export default function FleetHomeScreen() {
         <Text style={styles.sectionTitle}>Danh mục kế hoạch</Text>
         <View style={styles.categoryGrid}>
           {MISSION_CATEGORIES.map((cat) => (
-            <TouchableOpacity 
-              key={cat.id} 
-              style={styles.categoryCard} 
+            <TouchableOpacity
+              key={cat.id}
+              style={styles.categoryCard}
               activeOpacity={0.8}
               // Chuyển hướng sang màn List, truyền theo ID hoặc Tên danh mục
               onPress={() => router.push({ pathname: '/(FleetOperator)/mission-list', params: { categoryId: cat.id, categoryName: cat.title } })}
@@ -110,32 +157,32 @@ export default function FleetHomeScreen() {
         {/* --- Phần Danh sách chuyến bay nhanh --- */}
         <Text style={[styles.sectionTitle, { marginTop: 10 }]}>Chuyến bay hôm nay</Text>
         <View style={styles.flightListContainer}>
-          {TODAY_FLIGHTS.map((flight, index) => (
-            <View key={flight.id}>
-              <TouchableOpacity 
-                style={styles.flightCard} 
+          {missions.map((mission, index) => (
+            <View key={index}>
+              <TouchableOpacity
+                style={styles.flightCard}
                 activeOpacity={0.8}
                 // Thêm sự kiện chuyển hướng sang màn Detail khi bấm vào chuyến bay
-                onPress={() => router.push({ pathname: '/(FleetOperator)/mission-detail', params: { missionId: flight.id } })}
+                onPress={() => router.push({ pathname: '/(FleetOperator)/mission-detail', params: { missionId: mission._id } })}
               >
                 <View style={styles.flightIconContainer}>
                   <Ionicons name="paper-plane" size={20} color="#1F222A" />
                 </View>
                 <View style={styles.flightInfo}>
-                  <Text style={styles.flightTitle}>{flight.title}</Text>
-                  <Text style={styles.flightDesc}>{flight.drone} • {flight.time}</Text>
+                  <Text style={styles.flightTitle}>{mission.name}</Text>
+                  <Text style={styles.flightDesc}>{formatDate(mission.updatedAt)}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
                   <Text style={[
-                    styles.flightStatus, 
-                    { color: flight.status === 'Đang bay' ? '#2E7D32' : '#E65100' }
+                    styles.flightStatus,
+                    getStatusStyle(mission.status),
                   ]}>
-                    {flight.status}
+                    {mission.status}
                   </Text>
                   <Ionicons name="chevron-forward" size={16} color="#A0A0A0" style={{ marginTop: 4 }} />
                 </View>
               </TouchableOpacity>
-              
+
               {/* Divider (không hiển thị ở item cuối cùng) */}
               {index < TODAY_FLIGHTS.length - 1 && <View style={styles.divider} />}
             </View>
@@ -150,7 +197,7 @@ export default function FleetHomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9F9F9' },
   scrollContent: { padding: 20, paddingBottom: 50 },
-  
+
   // Header & Greeting
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 10 },
   headerTitle: { fontSize: 25, fontWeight: '600', color: '#1F222A', left: '40%' },

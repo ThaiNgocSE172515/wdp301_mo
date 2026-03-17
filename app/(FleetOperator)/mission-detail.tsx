@@ -1,12 +1,42 @@
 // app/(FleetOperator)/mission-detail.tsx
+import missionApi from '@/api/missionApi';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+type Mission = {
+  "mission": {
+    "_id": String,
+    "name": String,
+    "description": String,
+    "createdBy": String,
+    "status": "DRAFT" | "ACTIVE" | "COMPLETED" | string,
+    "createdAt": String,
+    "updatedAt": String,
+    "__v": 0
+  },
+}
 
 export default function MissionDetailScreen() {
   const router = useRouter();
+  const [mission, setMission] = useState<Mission>();
   const { missionId } = useLocalSearchParams();
+
+  useEffect(() => {
+    const fetchMissions = async () => {
+      console.log("id", missionId);
+      try {
+        const response = await missionApi.getMissionById(missionId);
+        setMission(response);
+      } catch (e) {
+        console.log("Đã xảy ra lỗi khi fetch api lấy mission theo id: ", e)
+      }
+    }
+    fetchMissions();
+  }, [missionId])
+
+  console.log("mision ", mission)
 
   // MOCK DATA: Chi tiết của 1 chuyến bay
   const missionDetail = {
@@ -21,6 +51,19 @@ export default function MissionDetailScreen() {
     description: 'Bay theo dải (Grid) để chụp ảnh độ phân giải cao phục vụ đo đạc vành đai và kiểm tra tình trạng cây trồng.',
     mapImage: 'https://images.unsplash.com/photo-1524661135-423995f22d0b?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80' // Ảnh map demo
   };
+
+  const formatDate = (date: any) => {
+    if (!date) return "-";
+    const dateTime = new Date(date);
+    const localDate = dateTime.toLocaleDateString();
+    return localDate;
+  }
+  const formatTime = (date: any) => {
+    if (!date) return "-";
+    const dateTime = new Date(date);
+    const localDate = dateTime.toLocaleTimeString();
+    return localDate;
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -44,9 +87,9 @@ export default function MissionDetailScreen() {
 
         {/* Thông tin chung */}
         <View style={styles.section}>
-          <Text style={styles.missionTitle}>{missionDetail.title}</Text>
-          <Text style={styles.missionId}>Mã nhiệm vụ: {missionDetail.id}</Text>
-          <Text style={styles.description}>{missionDetail.description}</Text>
+          <Text style={styles.missionTitle}>{mission?.mission.name}</Text>
+          <Text style={styles.missionId}>Mã nhiệm vụ: {mission?.mission._id}</Text>
+          <Text style={styles.description}>{mission?.mission.description}</Text>
         </View>
 
         {/* Bảng thông số chi tiết */}
@@ -55,7 +98,7 @@ export default function MissionDetailScreen() {
             <View style={styles.detailIconBox}><Ionicons name="calendar" size={20} color="#1565C0" /></View>
             <View>
               <Text style={styles.detailLabel}>Thời gian</Text>
-              <Text style={styles.detailValue}>{missionDetail.date} | {missionDetail.time}</Text>
+              <Text style={styles.detailValue}>{formatDate(mission?.mission.updatedAt)} | {formatTime(mission?.mission.createdAt)}</Text>
             </View>
           </View>
           <View style={styles.divider} />
@@ -90,12 +133,12 @@ export default function MissionDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9F9F9',  paddingTop: 20 },
+  container: { flex: 1, backgroundColor: '#F9F9F9', paddingTop: 20 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 15 },
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1F222A' },
   scrollContent: { paddingBottom: 100 }, // Chừa chỗ cho Bottom Bar
-  
+
   mapContainer: { width: '100%', height: 200, backgroundColor: '#ddd', position: 'relative' },
   mapImage: { width: '100%', height: '100%' },
   statusOverlay: { position: 'absolute', top: 15, right: 15, backgroundColor: '#FF9800', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
