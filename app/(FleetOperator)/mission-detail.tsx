@@ -1,10 +1,13 @@
 // app/(FleetOperator)/mission-detail.tsx
+import droneApi from '@/api/droneApi';
 import flightPlanApi from '@/api/flightPlanApi';
 import missionApi from '@/api/missionApi';
 import { Ionicons } from '@expo/vector-icons';
+import Mapbox from "@rnmapbox/maps";
+import * as turf from '@turf/turf';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Image, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 type Mission = {
   "mission": {
@@ -22,12 +25,16 @@ type Mission = {
 
 export default function MissionDetailScreen() {
   const router = useRouter();
+  const cameraRef = useRef<Mapbox.Camera>(null);
   const [mission, setMission] = useState<Mission>();
+  const [dronesMap, setDronesMap] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
   const [editMissionModalVisible, setEditMissionModalVisible] = useState(false);
   const [editMissionData, setEditMissionData] = useState({ name: '', description: '', status: '' });
   const [availableFlightPlans, setAvailableFlightPlans] = useState<any[]>([]);
+  const [selectedForAdd, setSelectedForAdd] = useState<string | null>(null);
+  const [plannedStartInput, setPlannedStartInput] = useState<string>('');
   const { missionId } = useLocalSearchParams();
 
   useEffect(() => {
@@ -35,7 +42,19 @@ export default function MissionDetailScreen() {
       try {
         setLoading(true);
         const response = await missionApi.getMissionById(missionId);
-        setMission(response);
+        setMission(response.data || response);
+
+        try {
+          const droneRes = await droneApi.getAll();
+          const droneList = droneRes.data || droneRes;
+          const dMap: Record<string, any> = {};
+          droneList.forEach((d: any) => {
+            dMap[d._id] = d;
+          });
+          setDronesMap(dMap);
+        } catch (e) {
+          console.log("Could not fetch drones", e);
+        }
       } catch (e) {
         console.log("Đã xảy ra lỗi khi fetch api lấy mission theo id: ", e)
         Alert.alert("Lỗi", "Không thể tải thông tin nhiệm vụ");
@@ -172,6 +191,7 @@ export default function MissionDetailScreen() {
       setLoading(true);
       const response = await flightPlanApi.getAll();
       setAvailableFlightPlans(response.data || response);
+      setSelectedForAdd(null);
       setModalVisible(true);
     } catch (e) {
       Alert.alert("Lỗi", "Không thể tải danh sách flight plans available");
@@ -180,19 +200,38 @@ export default function MissionDetailScreen() {
     }
   };
 
-  const handleSelectFlightPlan = async (flightPlanId: string) => {
+  const initAddPlan = (flightPlanId: string) => {
+    setSelectedForAdd(flightPlanId);
+    const now = new Date();
+    const formatted = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    setPlannedStartInput(formatted);
+  };
+
+  const confirmAddPlan = async () => {
+    if (!selectedForAdd) return;
     try {
       setLoading(true);
+      let startDateStr = plannedStartInput.replace(' ', 'T');
+      if (startDateStr.length === 16) startDateStr += ':00';
+      const startDate = new Date(startDateStr);
+      if (isNaN(startDate.getTime())) {
+        Alert.alert("Lỗi", "Định dạng thời gian không hợp lệ. Vui lòng nhập YYYY-MM-DD HH:mm");
+        return;
+      }
+
+      const endDate = new Date(startDate.getTime() + 2 * 3600000); // Tự động + 2 giờ
+
       const data = {
-        flightPlanId,
-        plannedStart: new Date().toISOString(),
-        plannedEnd: new Date(Date.now() + 3600000).toISOString(),
+        flightPlanId: selectedForAdd,
+        plannedStart: startDate.toISOString(),
+        plannedEnd: endDate.toISOString(),
         order: (mission?.missionPlans?.length || 0) + 1,
         notes: "Thêm từ Dashboard"
       };
       await missionApi.addMissionPlan(missionId, data);
       Alert.alert("Thành công", "Đã gán kế hoạch bay vào nhiệm vụ");
       setModalVisible(false);
+      setSelectedForAdd(null);
       const response = await missionApi.getMissionById(missionId);
       setMission(response);
     } catch (err: any) {
@@ -242,6 +281,11 @@ export default function MissionDetailScreen() {
     return dateTime.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
   }
 
+  const formatId = (id: string) => {
+    if (!id || id.length <= 12) return id;
+    return `${id.substring(0, 10)}...${id.substring(id.length - 4)}`;
+  };
+
   const getStatusText = (status: string) => {
     switch (status) {
       case 'DRAFT': return 'Bản nháp';
@@ -251,6 +295,70 @@ export default function MissionDetailScreen() {
       default: return status || 'Không rõ';
     }
   }
+
+  const getDroneInfo = (droneData: any) => {
+    if (!droneData) return 'Chưa định danh Drone';
+
+    if (typeof droneData === 'object' && droneData.model) {
+      return `${droneData.model} (${droneData.droneId})`;
+    }
+
+    const droneIdStr = typeof droneData === 'string' ? droneData : droneData._id;
+    const foundDrone = dronesMap[droneIdStr];
+    if (foundDrone) {
+      return `${foundDrone.model} (${formatId(foundDrone.droneId || droneIdStr)})`;
+    }
+
+    return `Drone ID: ${droneIdStr ? formatId(droneIdStr) : 'Unknown'}`;
+  };
+
+  const defaultCameraSettings = useMemo(() => {
+    if (!mission?.missionPlans || mission.missionPlans.length === 0) {
+      return { centerCoordinate: [106.6297, 10.8231], zoomLevel: 14 };
+    }
+    const allCoords: any[] = [];
+    mission.missionPlans.forEach((plan: any) => {
+      if (plan.flightPlan?.routeGeometry?.coordinates) {
+        // handle multi format
+        const coords = plan.flightPlan.routeGeometry.coordinates;
+        // Check if nested or flat
+        if (coords.length > 0 && Array.isArray(coords[0])) {
+          allCoords.push(...coords);
+        }
+      } else if (plan.flightPlan?.waypoints) {
+        plan.flightPlan.waypoints.forEach((wp: any) => {
+          if (wp.longitude && wp.latitude) {
+            allCoords.push([wp.longitude, wp.latitude]);
+          }
+        });
+      }
+    });
+
+    if (allCoords.length === 0) {
+      return { centerCoordinate: [106.6297, 10.8231], zoomLevel: 14 };
+    }
+
+    if (allCoords.length === 1) {
+      return { centerCoordinate: allCoords[0], zoomLevel: 16 };
+    }
+
+    try {
+      const line = turf.lineString(allCoords);
+      const bbox = turf.bbox(line); // [minX, minY, maxX, maxY]
+      return {
+        bounds: {
+          ne: [bbox[2], bbox[3]],
+          sw: [bbox[0], bbox[1]],
+          paddingTop: 50,
+          paddingBottom: 50,
+          paddingLeft: 50,
+          paddingRight: 50
+        }
+      };
+    } catch {
+      return { centerCoordinate: allCoords[0], zoomLevel: 14 };
+    }
+  }, [mission?.missionPlans]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -273,9 +381,58 @@ export default function MissionDetailScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* Bản đồ khu vực bay (Dùng ảnh giả lập) */}
+        {/* Bản đồ khu vực bay */}
         <View style={styles.mapContainer}>
-          <Image source={{ uri: 'https://images.unsplash.com/photo-1524661135-423995f22d0b?ixlib=rb-4.0.3&auto=format&fit=crop&w=800&q=80' }} style={styles.mapImage} />
+          <Mapbox.MapView
+            style={{ flex: 1 }}
+            styleURL={Mapbox.StyleURL.SatelliteStreet}
+            logoEnabled={false}
+            attributionEnabled={false}
+            scrollEnabled={true}
+            zoomEnabled={true}
+          >
+            <Mapbox.Camera defaultSettings={defaultCameraSettings as any} />
+
+            {/* RENDER LINES */}
+            {mission?.missionPlans?.map((plan: any, index: number) => {
+              let geometry = plan.flightPlan?.routeGeometry;
+              if (!geometry && plan.flightPlan?.waypoints?.length > 1) {
+                geometry = turf.lineString(plan.flightPlan.waypoints.map((w: any) => [w.longitude, w.latitude])).geometry;
+              }
+              if (!geometry) return null;
+
+              return (
+                <Mapbox.ShapeSource key={`route-${index}`} id={`routeSource-${index}`} shape={geometry as any}>
+                  <Mapbox.LineLayer
+                    id={`routeLine-${index}`}
+                    style={{
+                      lineColor: ['#00D1FF', '#E65100', '#2E7D32', '#8E24AA'][index % 4],
+                      lineWidth: 3,
+                      lineJoin: 'round',
+                      lineCap: 'round',
+                      lineDasharray: [2, 2]
+                    }}
+                  />
+                </Mapbox.ShapeSource>
+              );
+            })}
+
+            {/* RENDER POINTS */}
+            {mission?.missionPlans?.map((plan: any, planIndex: number) => (
+              plan.flightPlan?.waypoints?.map((wp: any, wpIndex: number) => (
+                <Mapbox.PointAnnotation
+                  key={`wp-${planIndex}-${wpIndex}`}
+                  id={`wp-${planIndex}-${wpIndex}`}
+                  coordinate={[wp.longitude, wp.latitude]}
+                >
+                  <View style={[styles.markerContainer, { backgroundColor: ['#00D1FF', '#E65100', '#2E7D32', '#8E24AA'][planIndex % 4] }]}>
+                    <Text style={styles.markerText}>{wp.sequenceNumber || wpIndex + 1}</Text>
+                  </View>
+                </Mapbox.PointAnnotation>
+              ))
+            ))}
+          </Mapbox.MapView>
+
           <View style={styles.statusOverlay}>
             <Text style={styles.statusOverlayText}>{getStatusText(mission?.mission?.status || '')}</Text>
           </View>
@@ -283,9 +440,16 @@ export default function MissionDetailScreen() {
 
         {/* Thông tin chung */}
         <View style={styles.section}>
-          <Text style={styles.missionTitle}>{mission?.mission.name}</Text>
-          <Text style={styles.missionId}>Mã nhiệm vụ: {mission?.mission._id}</Text>
-          <Text style={styles.description}>{mission?.mission.description}</Text>
+          <Text style={styles.missionTitle}>{mission?.mission?.name}</Text>
+          <Text style={styles.missionId}>Mã nhiệm vụ: {formatId(mission?.mission?._id || '')}</Text>
+          <Text style={styles.description}>{mission?.mission?.description}</Text>
+
+          {/* {mission?.mission?.createdBy && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 15 }}>
+              <Image source={{ uri: mission.mission.createdBy.profile?.avatar || 'https://ui-avatars.com/api/?name=' + (mission.mission.createdBy.profile?.fullName || 'User') }} style={{ width: 34, height: 34, borderRadius: 17, marginRight: 10, backgroundColor: '#eee' }} />
+              <Text style={{ fontSize: 13, color: '#666' }}>Tạo bởi: <Text style={{ fontWeight: 'bold', color: '#1F222A' }}>{mission.mission.createdBy.profile?.fullName || mission.mission.createdBy.email}</Text></Text>
+            </View>
+          )} */}
         </View>
 
         {/* Bảng thông số chi tiết của Mission Plans */}
@@ -335,10 +499,9 @@ export default function MissionDetailScreen() {
                   <View style={styles.detailRow}>
                     <View style={[styles.detailIconBox, { backgroundColor: '#FFF3E0' }]}><Ionicons name="hardware-chip" size={20} color="#E65100" /></View>
                     <View>
-                      <Text style={styles.detailLabel}>Drone & Phi công</Text>
+                      <Text style={styles.detailLabel}>Drone</Text>
                       <Text style={styles.detailValue}>
-                        {plan.flightPlan?.drone?.droneId || 'Chưa định danh'}
-                        {plan.flightPlan?.pilot?.profile?.fullName ? ` | ${plan.flightPlan.pilot.profile.fullName}` : ''}
+                        {getDroneInfo(plan.flightPlan?.drone)}
                       </Text>
                     </View>
                   </View>
@@ -388,19 +551,36 @@ export default function MissionDetailScreen() {
               keyExtractor={(item: any) => item._id}
               showsVerticalScrollIndicator={false}
               renderItem={({ item }) => (
-                <View style={styles.flightPlanItem}>
-                  <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }} onPress={() => handleSelectFlightPlan(item._id)}>
+                <View style={[styles.flightPlanItem, { flexDirection: 'column', alignItems: 'stretch' }]}>
+                  <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }} onPress={() => initAddPlan(item._id)}>
                     <View style={styles.flightPlanItemIcon}>
                       <Ionicons name="map" size={20} color="#1565C0" />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.flightPlanItemTitle}>{item.notes || 'Không có mô tả'}</Text>
                       <Text style={styles.flightPlanItemDesc} numberOfLines={1}>
-                        <Ionicons name="hardware-chip-outline" size={12} /> {item.drone?.model || 'Chưa gán Drone'}
+                        <Ionicons name="hardware-chip-outline" size={12} /> {getDroneInfo(item.drone)}
                       </Text>
                     </View>
                   </TouchableOpacity>
 
+                  {selectedForAdd === item._id && (
+                    <View style={{ marginTop: 15, borderTopWidth: 1, borderColor: '#EEE', paddingTop: 15 }}>
+                      <Text style={[styles.inputLabel, { marginTop: 0 }]}>Giờ bắt đầu (YYYY-MM-DD HH:mm):</Text>
+                      <TextInput
+                        style={[styles.textInput, { paddingVertical: 10, fontSize: 15 }]}
+                        value={plannedStartInput}
+                        onChangeText={setPlannedStartInput}
+                        placeholder="Ví dụ: 2026-03-20 08:30"
+                      />
+                      <Text style={{ fontSize: 12, color: '#E65100', marginTop: 8, fontStyle: 'italic' }}>
+                        * Giờ kết thúc bị ẩn và được cấu hình tự động cộng thêm 2 giờ.
+                      </Text>
+                      <TouchableOpacity style={[styles.primaryBtn, { height: 45, marginTop: 15 }]} onPress={confirmAddPlan}>
+                        <Text style={styles.primaryBtnText}>Xác nhận thêm</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               )}
               ListEmptyComponent={<Text style={{ textAlign: 'center', color: '#888', marginTop: 20 }}>Không có kế hoạch bay nào sẵn sàng.</Text>}
@@ -454,10 +634,12 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1F222A' },
   scrollContent: { paddingBottom: 100 }, // Chừa chỗ cho Bottom Bar
 
-  mapContainer: { width: '100%', height: 200, backgroundColor: '#ddd', position: 'relative' },
-  mapImage: { width: '100%', height: '100%' },
+  mapContainer: { width: '100%', height: 250, backgroundColor: '#ddd', position: 'relative' },
   statusOverlay: { position: 'absolute', top: 15, right: 15, backgroundColor: '#FF9800', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   statusOverlayText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
+
+  markerContainer: { width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#FFF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3, elevation: 4 },
+  markerText: { color: '#FFF', fontSize: 10, fontWeight: 'bold' },
 
   section: { padding: 20 },
   missionTitle: { fontSize: 24, fontWeight: 'bold', color: '#1F222A', marginBottom: 5 },

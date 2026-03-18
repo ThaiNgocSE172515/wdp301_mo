@@ -18,11 +18,11 @@ const missionApi = {
         return response.data;
     },
     updateMission: async (id: any, data: any) => {
-        const response = await axiosClient.put(`/missions/${id}/start`, data);
+        const response = await axiosClient.put(`/missions/${id}`, data);
         return response.data;
     },
     deleteMission: async (id: any) => {
-        const response = await axiosClient.delete(`/missions/${id}/start`);
+        const response = await axiosClient.delete(`/missions/${id}`);
         return response.data;
     },
     addMissionPlan: async (id: any, data: any) => {

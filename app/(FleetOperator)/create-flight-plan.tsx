@@ -18,13 +18,14 @@ export default function CreateFlightPlanScreen() {
   const [showDronePicker, setShowDronePicker] = useState(false);
 
   const [formData, setFormData] = useState({
-    name: '',
     notes: '',
     drone: '',
     priority: 1,
   });
 
   const [selectedDroneName, setSelectedDroneName] = useState('');
+  const [activeTab, setActiveTab] = useState<'MAP' | 'LIST'>('MAP');
+  const [isMapFullscreen, setIsMapFullscreen] = useState(false);
 
   type Waypoint = {
     latitude: number;
@@ -50,7 +51,7 @@ export default function CreateFlightPlanScreen() {
   const handleMapPress = (feature: any) => {
     if (!feature || !feature.geometry || !feature.geometry.coordinates) return;
     const coords = feature.geometry.coordinates; // [lng, lat]
-    
+
     setWaypoints(prev => [
       ...prev,
       {
@@ -80,28 +81,27 @@ export default function CreateFlightPlanScreen() {
       Alert.alert("Lỗi", "Vui lòng chọn Drone thực hiện");
       return;
     }
-    
+
     // Prepare waypoints array according to payload requirements
     const formattedWaypoints = waypoints.map((wp, index) => {
-        // Automatically make the last point LAND if > 1 points
-        let finalAction = wp.action;
-        if (index === waypoints.length - 1 && index > 0) {
-            finalAction = 'LAND';
-        }
+      // Automatically make the last point LAND if > 1 points
+      let finalAction = wp.action;
+      if (index === waypoints.length - 1 && index > 0) {
+        finalAction = 'LAND';
+      }
 
-        return {
-            sequenceNumber: index + 1,
-            latitude: wp.latitude,
-            longitude: wp.longitude,
-            altitude: wp.altitude,
-            speed: wp.speed,
-            estimatedTime: new Date(Date.now() + index * 10 * 60000).toISOString(), // Stubbed times
-            action: finalAction
-        };
+      return {
+        sequenceNumber: index + 1,
+        latitude: wp.latitude,
+        longitude: wp.longitude,
+        altitude: wp.altitude,
+        speed: wp.speed,
+        estimatedTime: new Date(Date.now() + index * 10 * 60000).toISOString(), // Stubbed times
+        action: finalAction
+      };
     });
 
     const payload = {
-      name: formData.name, // Keep name just in case
       notes: formData.notes,
       drone: formData.drone,
       priority: formData.priority,
@@ -134,40 +134,99 @@ export default function CreateFlightPlanScreen() {
     return turf.lineString(waypoints.map(w => [w.longitude, w.latitude]));
   }, [waypoints]);
 
+  const renderMapBox = (isFullscreen: boolean) => (
+    <View style={isFullscreen ? { flex: 1 } : styles.mapContainer}>
+      <Mapbox.MapView
+        style={{ flex: 1 }}
+        styleURL={Mapbox.StyleURL.SatelliteStreet}
+        onPress={handleMapPress}
+        logoEnabled={false}
+        attributionEnabled={false}
+      >
+        <Mapbox.Camera
+          ref={cameraRef}
+          defaultSettings={{
+            centerCoordinate: [106.6297, 10.8231], // HCM default
+            zoomLevel: 14,
+          }}
+        />
+
+        {/* VẼ ĐƯỜNG */}
+        {lineGeoJSON && (
+          <Mapbox.ShapeSource id="routeSource" shape={lineGeoJSON as any}>
+            <Mapbox.LineLayer
+              id="routeLine"
+              style={{
+                lineColor: '#00D1FF',
+                lineWidth: 3,
+                lineJoin: 'round',
+                lineCap: 'round',
+                lineDasharray: [2, 2] // Dashed line for plan
+              }}
+            />
+          </Mapbox.ShapeSource>
+        )}
+
+        {/* VẼ ĐIỂM ĐỂ HIỆN RÕ SỐ THỨ TỰ */}
+        {waypoints.map((wp, index) => (
+          <Mapbox.PointAnnotation
+            key={`wp-${index}`}
+            id={`wp-${index}`}
+            coordinate={[wp.longitude, wp.latitude]}
+          >
+            <View style={styles.markerContainer}>
+              <Text style={styles.markerText}>{index + 1}</Text>
+            </View>
+          </Mapbox.PointAnnotation>
+        ))}
+      </Mapbox.MapView>
+
+      {/* Map Control Overlay */}
+      <View style={styles.mapControls}>
+        <TouchableOpacity style={styles.mapBtn} onPress={undoLastWaypoint} disabled={waypoints.length === 0}>
+          <Ionicons name="arrow-undo" size={20} color={waypoints.length === 0 ? "#ccc" : "#333"} />
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.mapBtn, { marginTop: 10 }]} onPress={clearWaypoints} disabled={waypoints.length === 0}>
+          <Ionicons name="trash" size={20} color={waypoints.length === 0 ? "#ccc" : "#D32F2F"} />
+        </TouchableOpacity>
+      </View>
+
+      {!isFullscreen && (
+        <TouchableOpacity
+          style={{ position: 'absolute', top: 10, right: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2 }}
+          onPress={() => setIsMapFullscreen(true)}
+        >
+          <Ionicons name="expand" size={20} color="#333" />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#1F222A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Tạo Route Template</Text>
+        <Text style={styles.headerTitle}>Tạo kế hoạch bay</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content} nestedScrollEnabled={true}>
         {/* Form Inputs */}
-        <View style={styles.formGroup}>
-          <Text style={styles.label}>Mô tả (*)</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Ví dụ: Bay tuần tra khu vực Bắc"
-            value={formData.name}
-            onChangeText={(t) => setFormData({ ...formData, name: t })}
-          />
-        </View>
 
         <View style={styles.formGroup}>
-            <Text style={styles.label}>Chọn Drone (*)</Text>
-            <TouchableOpacity 
-                style={styles.pickerInput} 
-                onPress={() => setShowDronePicker(true)}
-                activeOpacity={0.8}
-            >
-                <Text style={{ color: selectedDroneName ? '#1F222A' : '#A0A0A0', fontSize: 16 }}>
-                    {selectedDroneName || 'Nhấn để chọn Drone...'}
-                </Text>
-                <Ionicons name="chevron-down" size={20} color="#888" />
-            </TouchableOpacity>
+          <Text style={styles.label}>Chọn Drone (*)</Text>
+          <TouchableOpacity
+            style={styles.pickerInput}
+            onPress={() => setShowDronePicker(true)}
+            activeOpacity={0.8}
+          >
+            <Text style={{ color: selectedDroneName ? '#1F222A' : '#A0A0A0', fontSize: 16 }}>
+              {selectedDroneName || 'Nhấn để chọn Drone...'}
+            </Text>
+            <Ionicons name="chevron-down" size={20} color="#888" />
+          </TouchableOpacity>
         </View>
 
         <View style={styles.formGroup}>
@@ -182,87 +241,84 @@ export default function CreateFlightPlanScreen() {
           />
         </View>
 
-        {/* Bản đồ vẽ Waypoints */}
+        {/* Bản đồ vẽ Waypoints hoặc Danh sách chi tiết */}
         <View style={styles.formGroup}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 }}>
-                <Text style={[styles.label, { marginBottom: 0 }]}>Thiết lập lộ trình (Chạm lên bản đồ)</Text>
-                <Text style={{ fontSize: 13, color: '#0055FF', fontWeight: 'bold' }}>
-                    {waypoints.length} Điểm
-                </Text>
-            </View>
-            
-            <View style={styles.mapContainer}>
-                <Mapbox.MapView 
-                    style={{ flex: 1 }} 
-                    styleURL={Mapbox.StyleURL.SatelliteStreet}
-                    onPress={handleMapPress}
-                    logoEnabled={false}
-                    attributionEnabled={false}
-                >
-                    <Mapbox.Camera
-                        ref={cameraRef}
-                        defaultSettings={{
-                            centerCoordinate: [106.6297, 10.8231], // HCM default
-                            zoomLevel: 14,
-                        }}
-                    />
-
-                    {/* VẼ ĐƯỜNG */}
-                    {lineGeoJSON && (
-                        <Mapbox.ShapeSource id="routeSource" shape={lineGeoJSON as any}>
-                            <Mapbox.LineLayer
-                                id="routeLine"
-                                style={{
-                                    lineColor: '#00D1FF',
-                                    lineWidth: 3,
-                                    lineJoin: 'round',
-                                    lineCap: 'round',
-                                    lineDasharray: [2, 2] // Dashed line for plan
-                                }}
-                            />
-                        </Mapbox.ShapeSource>
-                    )}
-
-                    {/* VẼ ĐIỂM ĐỂ HIỆN RÕ SỐ THỨ TỰ */}
-                    {waypoints.map((wp, index) => (
-                        <Mapbox.PointAnnotation
-                            key={`wp-${index}`}
-                            id={`wp-${index}`}
-                            coordinate={[wp.longitude, wp.latitude]}
-                        >
-                            <View style={styles.markerContainer}>
-                                <Text style={styles.markerText}>{index + 1}</Text>
-                            </View>
-                        </Mapbox.PointAnnotation>
-                    ))}
-                </Mapbox.MapView>
-
-                {/* Map Control Overlay */}
-                <View style={styles.mapControls}>
-                    <TouchableOpacity style={styles.mapBtn} onPress={undoLastWaypoint} disabled={waypoints.length === 0}>
-                        <Ionicons name="arrow-undo" size={20} color={waypoints.length === 0 ? "#ccc" : "#333"} />
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.mapBtn, { marginTop: 10 }]} onPress={clearWaypoints} disabled={waypoints.length === 0}>
-                        <Ionicons name="trash" size={20} color={waypoints.length === 0 ? "#ccc" : "#D32F2F"} />
-                    </TouchableOpacity>
-                </View>
-            </View>
-            <Text style={{ fontSize: 12, color: '#888', marginTop: 5, fontStyle: 'italic' }}>
-                * Điểm 1 sẽ tự động set là TAKEOFF, điểm cuối tự động set là LAND.
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 8 }}>
+            <Text style={[styles.label, { marginBottom: 0 }]}>Thiết lập lộ trình</Text>
+            <Text style={{ fontSize: 13, color: '#0055FF', fontWeight: 'bold' }}>
+              {waypoints.length} Điểm
             </Text>
+          </View>
+
+          {/* TAB SWITCHER */}
+          <View style={{ flexDirection: 'row', borderRadius: 8, backgroundColor: '#E0E0E0', padding: 4, marginBottom: 15 }}>
+            <TouchableOpacity
+              style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 6, backgroundColor: activeTab === 'MAP' ? '#fff' : 'transparent', shadowColor: activeTab === 'MAP' ? '#000' : 'transparent', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: activeTab === 'MAP' ? 2 : 0 }}
+              onPress={() => setActiveTab('MAP')}
+            >
+              <Text style={{ fontWeight: 'bold', color: activeTab === 'MAP' ? '#0055FF' : '#666' }}>Bản Đồ</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 6, backgroundColor: activeTab === 'LIST' ? '#fff' : 'transparent', shadowColor: activeTab === 'LIST' ? '#000' : 'transparent', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: activeTab === 'LIST' ? 2 : 0 }}
+              onPress={() => setActiveTab('LIST')}
+            >
+              <Text style={{ fontWeight: 'bold', color: activeTab === 'LIST' ? '#0055FF' : '#666' }}>Danh sách điểm</Text>
+            </TouchableOpacity>
+          </View>
+
+          {activeTab === 'MAP' ? (
+            <>
+              {!isMapFullscreen && renderMapBox(false)}
+              <Text style={{ fontSize: 12, color: '#888', marginTop: 5, fontStyle: 'italic' }}>
+                * Điểm 1 sẽ tự động set là TAKEOFF, điểm cuối tự động set là LAND.
+              </Text>
+            </>
+          ) : (
+            <View style={{ minHeight: SCREEN_HEIGHT * 0.45, backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#DDD', padding: 15 }}>
+              {waypoints.length === 0 ? (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="map-outline" size={48} color="#ccc" />
+                  <Text style={{ textAlign: 'center', color: '#888', marginTop: 10 }}>Chưa có điểm nào. Hãy sang tab Bản đồ để thêm điểm.</Text>
+                </View>
+              ) : (
+                waypoints.map((wp, index) => {
+                  let finalAction = wp.action;
+                  if (index === waypoints.length - 1 && index > 0) {
+                    finalAction = 'LAND';
+                  }
+                  return (
+                    <View key={`list-wp-${index}`} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: index === waypoints.length - 1 ? 0 : 1, borderBottomColor: '#EEE' }}>
+                      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#E65100', justifyContent: 'center', alignItems: 'center', marginRight: 15 }}>
+                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>{index + 1}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: 'bold', fontSize: 16, color: '#1F222A', marginBottom: 2 }}>{finalAction}</Text>
+                        <Text style={{ color: '#555', fontSize: 13, marginBottom: 2 }}>
+                          Vĩ độ: {wp.latitude.toFixed(5)}   Kinh độ: {wp.longitude.toFixed(5)}
+                        </Text>
+                        <Text style={{ color: '#888', fontSize: 13 }}>
+                          Độ cao (mặc định): {wp.altitude}m  •  Tốc độ: {wp.speed}m/s
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </View>
+          )}
         </View>
 
-        <TouchableOpacity 
-          style={styles.submitBtn} 
-          onPress={handleCreate} 
+        <TouchableOpacity
+          style={styles.submitBtn}
+          onPress={handleCreate}
           disabled={loading}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />
           ) : (
             <>
-                <Ionicons name="cloud-upload-outline" size={20} color="#fff" style={{marginRight: 8}}/>
-                <Text style={styles.submitBtnText}>TẠO ROUTE TEMPLATE</Text>
+              <Ionicons name="cloud-upload-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={styles.submitBtnText}>Tạo kế hoạch bay</Text>
             </>
           )}
         </TouchableOpacity>
@@ -270,38 +326,55 @@ export default function CreateFlightPlanScreen() {
 
       {/* MODAL CHỌN DRONE */}
       <Modal visible={showDronePicker} transparent animationType="slide">
-          <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, paddingHorizontal: 20, paddingTop: 20 }}>
-                      <Text style={{ fontSize: 18, fontWeight: 'bold' }}>Chọn Drone</Text>
-                      <TouchableOpacity onPress={() => setShowDronePicker(false)}>
-                          <Ionicons name="close" size={24} color="#333" />
-                      </TouchableOpacity>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, paddingHorizontal: 20, paddingTop: 20 }}>
+              <Text style={{ fontSize: 18, fontWeight: 'bold' }}>Chọn Drone</Text>
+              <TouchableOpacity onPress={() => setShowDronePicker(false)}>
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 300, paddingHorizontal: 10 }}>
+              {drones.map((d: any) => (
+                <TouchableOpacity
+                  key={d._id}
+                  style={styles.droneItem}
+                  onPress={() => {
+                    setFormData({ ...formData, drone: d._id });
+                    setSelectedDroneName(`${d.model} (${d.droneId})`);
+                    setShowDronePicker(false);
+                  }}
+                >
+                  <Ionicons name="hardware-chip" size={24} color="#0055FF" />
+                  <View style={{ marginLeft: 15 }}>
+                    <Text style={{ fontSize: 16, fontWeight: 'bold' }}>{d.model}</Text>
+                    <Text style={{ fontSize: 13, color: '#888' }}>ID: {d.droneId}  • Trạng thái: {d.status}</Text>
                   </View>
-                  <ScrollView style={{ maxHeight: 300, paddingHorizontal: 10 }}>
-                      {drones.map((d: any) => (
-                          <TouchableOpacity 
-                              key={d._id} 
-                              style={styles.droneItem}
-                              onPress={() => {
-                                  setFormData({ ...formData, drone: d._id });
-                                  setSelectedDroneName(`${d.model} (${d.droneId})`);
-                                  setShowDronePicker(false);
-                              }}
-                          >
-                              <Ionicons name="hardware-chip" size={24} color="#0055FF" />
-                              <View style={{ marginLeft: 15 }}>
-                                  <Text style={{ fontSize: 16, fontWeight: 'bold' }}>{d.model}</Text>
-                                  <Text style={{ fontSize: 13, color: '#888' }}>ID: {d.droneId}  • Trạng thái: {d.status}</Text>
-                              </View>
-                          </TouchableOpacity>
-                      ))}
-                      {drones.length === 0 && (
-                          <Text style={{ textAlign: 'center', marginVertical: 20, color: '#888' }}>Chưa có drone nào trong đội bay</Text>
-                      )}
-                  </ScrollView>
-              </View>
+                </TouchableOpacity>
+              ))}
+              {drones.length === 0 && (
+                <Text style={{ textAlign: 'center', marginVertical: 20, color: '#888' }}>Chưa có drone nào trong đội bay</Text>
+              )}
+            </ScrollView>
           </View>
+        </View>
+      </Modal>
+      {/* MODAL FULL SCREEN MAP */}
+      <Modal visible={isMapFullscreen} transparent animationType="slide">
+        <View style={{ flex: 1, backgroundColor: '#F9F9F9' }}>
+          <SafeAreaView style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#EEE' }}>
+              <View>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1F222A' }}>Chạm để đặt điểm bay</Text>
+                <Text style={{ fontSize: 13, color: '#0055FF', fontWeight: 'bold' }}>{waypoints.length} Điểm</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsMapFullscreen(false)}>
+                <Ionicons name="contract" size={28} color="#333" />
+              </TouchableOpacity>
+            </View>
+            {isMapFullscreen && renderMapBox(true)}
+          </SafeAreaView>
+        </View>
       </Modal>
 
     </SafeAreaView>
@@ -313,7 +386,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 15 },
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
   headerTitle: { fontSize: 20, fontWeight: 'bold', color: '#1F222A' },
-  
+
   content: { padding: 20, paddingBottom: 50 },
   formGroup: { marginBottom: 20 },
   label: { fontSize: 15, fontWeight: '600', color: '#1F222A', marginBottom: 8 },
@@ -337,52 +410,52 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   textArea: { height: 80, textAlignVertical: 'top' },
-  
+
   mapContainer: {
-      height: SCREEN_HEIGHT * 0.45,
-      borderRadius: 16,
-      overflow: 'hidden',
-      borderWidth: 1,
-      borderColor: '#DDD'
+    height: SCREEN_HEIGHT * 0.45,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#DDD'
   },
   mapControls: {
-      position: 'absolute',
-      right: 15,
-      bottom: 15,
-      zIndex: 10
+    position: 'absolute',
+    right: 15,
+    bottom: 15,
+    zIndex: 10
   },
   mapBtn: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: '#fff',
-      justifyContent: 'center',
-      alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.2,
-      shadowRadius: 4,
-      elevation: 4,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   markerContainer: {
-      width: 24,
-      height: 24,
-      borderRadius: 12,
-      backgroundColor: '#E65100',
-      justifyContent: 'center',
-      alignItems: 'center',
-      borderWidth: 2,
-      borderColor: '#FFF',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.3,
-      shadowRadius: 3,
-      elevation: 4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#E65100',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#FFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 4,
   },
   markerText: {
-      color: '#FFF',
-      fontSize: 12,
-      fontWeight: 'bold',
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: 'bold',
   },
 
   submitBtn: {

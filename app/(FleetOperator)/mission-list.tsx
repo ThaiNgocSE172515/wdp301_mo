@@ -94,7 +94,6 @@ export default function MissionListScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Hiển thị Loading khi đang gọi API */}
       {loading ? (
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#1565C0" />

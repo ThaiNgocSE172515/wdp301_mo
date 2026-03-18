@@ -12,6 +12,18 @@ export default function RootLayout() {
       try {
         const token = await AsyncStorage.getItem("ACCESS_TOKEN");
         if (token) {
+          try {
+            const userProfile = await AsyncStorage.getItem("USER_PROFILE");
+            if (userProfile) {
+              const user = JSON.parse(userProfile);
+              if (user.role === 'FLEET_OPERATOR') {
+                router.replace("/(FleetOperator)");
+                return;
+              }
+            }
+          } catch (e) {
+            console.log("Lỗi parse user profile:", e);
+          }
           router.replace("/(tabs)");
         } else {
           router.replace("/(auth)/login");

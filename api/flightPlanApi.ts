@@ -20,6 +20,18 @@ const flightPlanApi = {
     delete: async (id: any) => {
         const response = await axiosClient.delete(`/flight-plans/${id}`);
         return response.data;
+    },
+    submit: async (id: any) => {
+        const response = await axiosClient.post(`/flight-plans/${id}/submit`);
+        return response.data;
+    },
+    cancel: async (id: any) => {
+        const response = await axiosClient.post(`/flight-plans/${id}/cancel`);
+        return response.data;
+    },
+    getConflicts: async (id: any) => {
+        const response = await axiosClient.get(`/flight-plans/${id}/conflicts`);
+        return response.data;
     }
 }
 

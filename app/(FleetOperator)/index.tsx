@@ -2,7 +2,7 @@ import missionApi from '@/api/missionApi';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Alert,
   SafeAreaView,
@@ -112,16 +112,16 @@ export default function FleetHomeScreen() {
         {/* --- Header --- */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Missions</Text>
-          <View style={{flexDirection: 'row', alignItems: 'center', gap: 15}}>
-              <TouchableOpacity onPress={() => router.push('/(FleetOperator)/create-mission')}>
-                  <View style={styles.addBtn}>
-                      <Ionicons name="add" size={24} color="#fff" />
-                  </View>
-              </TouchableOpacity>
-              {/* Nút Avatar kèm chức năng Đăng xuất */}
-              <TouchableOpacity style={styles.avatar} onPress={handleLogout} activeOpacity={0.7}>
-                <Text style={styles.avatarText}>{firstLetter}</Text>
-              </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
+            <TouchableOpacity onPress={() => router.push('/(FleetOperator)/create-mission')}>
+              <View style={styles.addBtn}>
+                <Ionicons name="add" size={24} color="#fff" />
+              </View>
+            </TouchableOpacity>
+            {/* Nút Avatar kèm chức năng Đăng xuất */}
+            <TouchableOpacity style={styles.avatar} onPress={handleLogout} activeOpacity={0.7}>
+              <Text style={styles.avatarText}>{firstLetter}</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -141,37 +141,37 @@ export default function FleetHomeScreen() {
               <Ionicons name="map" size={32} color="#1565C0" />
             </View>
             <View style={styles.actionTextContainer}>
-                <Text style={styles.actionTitle}>Tất cả Nhiệm vụ</Text>
-                <Text style={styles.actionDesc}>Quản lý và theo dõi toàn bộ nhiệm vụ bay</Text>
+              <Text style={styles.actionTitle}>Tất cả Nhiệm vụ</Text>
+              <Text style={styles.actionDesc}>Quản lý và theo dõi toàn bộ nhiệm vụ bay</Text>
             </View>
             <Ionicons name="chevron-forward" size={24} color="#1565C0" />
           </TouchableOpacity>
         </View>
 
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 }}>
-            {/* Nút Quản lý Drone */}
-            <TouchableOpacity 
-                style={styles.subActionCard} 
-                activeOpacity={0.8}
-                onPress={() => router.push('/my-drones')}
-            >
-                <View style={[styles.subActionIconBox, { backgroundColor: '#E8F5E9' }]}>
-                    <Ionicons name="hardware-chip" size={28} color="#2E7D32" />
-                </View>
-                <Text style={styles.subActionTitle}>Drones</Text>
-            </TouchableOpacity>
+          {/* Nút Quản lý Drone */}
+          <TouchableOpacity
+            style={styles.subActionCard}
+            activeOpacity={0.8}
+            onPress={() => router.push('/my-drones')}
+          >
+            <View style={[styles.subActionIconBox, { backgroundColor: '#E8F5E9' }]}>
+              <Ionicons name="hardware-chip" size={28} color="#2E7D32" />
+            </View>
+            <Text style={styles.subActionTitle}>Drones</Text>
+          </TouchableOpacity>
 
-            {/* Nút Quản lý Flight Plan */}
-            <TouchableOpacity 
-                style={styles.subActionCard} 
-                activeOpacity={0.8}
-                onPress={() => router.push('/(FleetOperator)/flight-plans')}
-            >
-                <View style={[styles.subActionIconBox, { backgroundColor: '#FFF3E0' }]}>
-                    <Ionicons name="earth" size={28} color="#E65100" />
-                </View>
-                <Text style={styles.subActionTitle}>Mẫu bay</Text>
-            </TouchableOpacity>
+          {/* Nút Quản lý Flight Plan */}
+          <TouchableOpacity
+            style={styles.subActionCard}
+            activeOpacity={0.8}
+            onPress={() => router.push('/(FleetOperator)/flight-plans')}
+          >
+            <View style={[styles.subActionIconBox, { backgroundColor: '#FFF3E0' }]}>
+              <Ionicons name="earth" size={28} color="#E65100" />
+            </View>
+            <Text style={styles.subActionTitle}>Kế Hoạch bay</Text>
+          </TouchableOpacity>
         </View>
 
         {/* --- Phần Danh sách chuyến bay nhanh --- */}
@@ -232,7 +232,7 @@ const styles = StyleSheet.create({
   greetingSection: { marginBottom: 25 },
   userName: { fontSize: 26, fontWeight: 'bold', color: '#1F222A' },
   welcomeText: { fontSize: 14, color: '#A0A0A0', marginTop: 4 },
-  
+
   // Quick Action Button
   actionGrid: { marginBottom: 15 },
   mainActionCard: {
@@ -253,17 +253,17 @@ const styles = StyleSheet.create({
   actionDesc: { fontSize: 13, color: '#A0A0A0', lineHeight: 20 },
 
   subActionCard: {
-      flex: 1,
-      backgroundColor: '#ffffff',
-      padding: 15,
-      borderRadius: 16,
-      alignItems: 'center',
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.05,
-      shadowRadius: 10,
-      elevation: 3,
-      marginHorizontal: 5
+    flex: 1,
+    backgroundColor: '#ffffff',
+    padding: 15,
+    borderRadius: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+    marginHorizontal: 5
   },
   subActionIconBox: { width: 50, height: 50, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
   subActionTitle: { fontSize: 16, fontWeight: 'bold', color: '#1F222A' },

@@ -22,7 +22,7 @@ export default function FlightPlanDetailScreen() {
                 const res = await flightPlanApi.getById(id);
                 setDetail(res.data || res);
             } catch (error) {
-                Alert.alert("Lỗi", "Không thể lấy chi tiết mẫu bay");
+                Alert.alert("Lỗi", "Không thể lấy chi tiết Kế hoạch bay");
                 router.back();
             } finally {
                 setLoading(false);
@@ -34,6 +34,44 @@ export default function FlightPlanDetailScreen() {
     const formatDate = (dateString: string) => {
         if (!dateString) return;
         return new Date(dateString).toLocaleString('vi-VN');
+    };
+
+    const handleSubmit = async () => {
+        Alert.alert("Xác nhận", "Bạn muốn submit kế hoạch bay này để được phê duyệt?", [
+            { text: "Không", style: "cancel" },
+            { text: "Đồng ý", onPress: async () => {
+                try {
+                    setLoading(true);
+                    await flightPlanApi.submit(id);
+                    Alert.alert("Thành công", "Đã submit flight plan. Trạng thái đã cập nhật thành APPROVED.");
+                    const res = await flightPlanApi.getById(id);
+                    setDetail(res.data || res);
+                } catch (error: any) {
+                    Alert.alert("Lỗi", error.response?.data?.message || "Không thể submit flight plan");
+                } finally {
+                    setLoading(false);
+                }
+            }}
+        ]);
+    };
+
+    const handleCancel = async () => {
+        Alert.alert("Xác nhận", "Bạn muốn hủy kế hoạch bay này?", [
+            { text: "Không", style: "cancel" },
+            { text: "Đồng ý", style: "destructive", onPress: async () => {
+                try {
+                    setLoading(true);
+                    await flightPlanApi.cancel(id);
+                    Alert.alert("Thành công", "Đã hủy flight plan");
+                    const res = await flightPlanApi.getById(id);
+                    setDetail(res.data || res);
+                } catch (error: any) {
+                    Alert.alert("Lỗi", error.response?.data?.message || "Không thể hủy flight plan");
+                } finally {
+                    setLoading(false);
+                }
+            }}
+        ]);
     };
 
     const lineGeoJSON = useMemo(() => {
@@ -86,7 +124,7 @@ export default function FlightPlanDetailScreen() {
                 <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
                     <Ionicons name="arrow-back" size={24} color="#1F222A" />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Chi tiết Mẫu bay</Text>
+                <Text style={styles.headerTitle}>Chi tiết Kế hoạch bay</Text>
                 <View style={{ width: 40 }} />
             </View>
 
@@ -160,7 +198,53 @@ export default function FlightPlanDetailScreen() {
                         </Mapbox.MapView>
                     </View>
                 </View>
+
+                {/* Danh sách các điểm bay */}
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Chi Tiết Các Điểm Bay</Text>
+                    {!detail.waypoints || detail.waypoints.length === 0 ? (
+                        <Text style={{ textAlign: 'center', color: '#888', marginTop: 10 }}>Chưa có điểm nào được định nghĩa.</Text>
+                    ) : (
+                        <View style={{ backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#DDD', padding: 15 }}>
+                            {detail.waypoints.map((wp: any, index: number) => (
+                                <View key={`list-wp-${index}`} style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: index === detail.waypoints.length - 1 ? 0 : 1, borderBottomColor: '#EEE' }}>
+                                    <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#E65100', justifyContent: 'center', alignItems: 'center', marginRight: 15 }}>
+                                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>{wp.sequenceNumber || index + 1}</Text>
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={{ fontWeight: 'bold', fontSize: 16, color: '#1F222A', marginBottom: 2 }}>{wp.action}</Text>
+                                        <Text style={{ color: '#555', fontSize: 13, marginBottom: 2 }}>
+                                            Vĩ độ: {wp.latitude.toFixed(5)}   Kinh độ: {wp.longitude.toFixed(5)}
+                                        </Text>
+                                        <Text style={{ color: '#888', fontSize: 13 }}>
+                                            Độ cao (mặc định): {wp.altitude}m  •  Tốc độ: {wp.speed}m/s
+                                        </Text>
+                                        {wp.estimatedTime && (
+                                            <Text style={{ color: '#888', fontSize: 13, marginTop: 4 }}>
+                                                Tgian dự kiến: {new Date(wp.estimatedTime).toLocaleTimeString('vi-VN')}
+                                            </Text>
+                                        )}
+                                    </View>
+                                </View>
+                            ))}
+                        </View>
+                    )}
+                </View>
             </ScrollView>
+
+            {/* Bottom Actions for DRAFT / REJECTED */}
+            {(detail.status === 'DRAFT' || detail.status === 'REJECTED') && (
+                <View style={styles.bottomBar}>
+                    <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
+                        <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
+                        <Text style={styles.actionBtnText}>Submit Duyệt</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.cancelBtn} onPress={handleCancel}>
+                        <Ionicons name="close-circle-outline" size={20} color="#D32F2F" />
+                        <Text style={[styles.actionBtnText, { color: '#D32F2F' }]}>Hủy Bỏ</Text>
+                    </TouchableOpacity>
+                </View>
+            )}
         </SafeAreaView>
     );
 }
@@ -219,5 +303,10 @@ const styles = StyleSheet.create({
     waypointIndexText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
     waypointAction: { fontSize: 16, fontWeight: 'bold', color: '#1F222A', marginBottom: 2 },
     waypointCoords: { fontSize: 13, color: '#666' },
-    waypointParam: { fontSize: 12, color: '#E65100', fontWeight: '600', backgroundColor: '#FFF3E0', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }
+    waypointParam: { fontSize: 12, color: '#E65100', fontWeight: '600', backgroundColor: '#FFF3E0', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+
+    bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', paddingHorizontal: 20, paddingTop: 15, paddingBottom: 30, borderTopWidth: 1, borderTopColor: '#eee', flexDirection: 'row', gap: 10 },
+    submitBtn: { flex: 1, backgroundColor: '#0055FF', flexDirection: 'row', height: 50, borderRadius: 12, justifyContent: 'center', alignItems: 'center', gap: 8 },
+    cancelBtn: { flex: 1, backgroundColor: '#FFF0F0', flexDirection: 'row', height: 50, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#FFCDD2', gap: 8 },
+    actionBtnText: { color: '#fff', fontSize: 15, fontWeight: 'bold' }
 });

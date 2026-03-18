@@ -23,7 +23,7 @@ export default function FlightPlansScreen() {
   const [loading, setLoading] = useState(true);
 
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const [editingPlan, setEditingPlan] = useState<{ _id: string, name: string, notes: string } | null>(null);
+  const [editingPlan, setEditingPlan] = useState<{ _id: string, notes: string, drone: string, priority: number, waypoints: any[] } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fetchFlightPlans = async () => {
@@ -46,7 +46,7 @@ export default function FlightPlansScreen() {
   );
 
   const confirmDelete = (id: string) => {
-    Alert.alert('Xác nhận xóa', 'Bạn có chắc chắn muốn xóa mẫu bay này không?', [
+    Alert.alert('Xác nhận xóa', 'Bạn có chắc chắn muốn xóa Kế hoạch bay này không?', [
       { text: 'Hủy', style: 'cancel' },
       {
         text: 'Xóa',
@@ -55,9 +55,9 @@ export default function FlightPlansScreen() {
           try {
             await flightPlanApi.delete(id);
             setListData((prev) => prev.filter((item) => item._id !== id));
-            Alert.alert("Thành công", "Đã xóa mẫu bay");
+            Alert.alert("Thành công", "Đã xóa Kế hoạch bay");
           } catch (error) {
-            Alert.alert('Lỗi', 'Không thể xóa mẫu bay này (có thể do đang được sử dụng)');
+            Alert.alert('Lỗi', 'Không thể xóa Kế hoạch bay này (có thể do đang được sử dụng)');
           }
         },
       },
@@ -67,28 +67,32 @@ export default function FlightPlansScreen() {
   const openEditModal = (item: any) => {
     setEditingPlan({
       _id: item._id,
-      name: item.name || '',
-      notes: item.notes || item.description || ''
+      notes: item.notes || '',
+      drone: item.drone?._id || item.drone,
+      priority: item.priority || 0,
+      waypoints: item.waypoints || []
     });
     setEditModalVisible(true);
   };
 
   const handleUpdate = async () => {
-    if (!editingPlan?.name) {
-      Alert.alert("Lỗi", "Tên mẫu bay không được để trống");
+    if (!editingPlan?.notes) {
+      Alert.alert("Lỗi", "Ghi chú/Mô tả không được để trống");
       return;
     }
     try {
       setIsSubmitting(true);
       await flightPlanApi.update(editingPlan._id, {
-        name: editingPlan.name,
-        notes: editingPlan.notes
+        notes: editingPlan.notes,
+        drone: editingPlan.drone,
+        priority: editingPlan.priority,
+        waypoints: editingPlan.waypoints
       });
-      Alert.alert("Thành công", "Đã cập nhật mẫu bay");
+      Alert.alert("Thành công", "Đã cập nhật Kế hoạch bay");
       setEditModalVisible(false);
       fetchFlightPlans();
     } catch (e) {
-      Alert.alert("Lỗi", "Không thể cập nhật mẫu bay");
+      Alert.alert("Lỗi", "Không thể cập nhật Kế hoạch bay");
     } finally {
       setIsSubmitting(false);
     }
@@ -126,13 +130,13 @@ export default function FlightPlansScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#1F222A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Quản lý Mẫu bay</Text>
+        <Text style={styles.headerTitle}>Quản lý Kế hoạch bay</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <TouchableOpacity style={styles.addButton} activeOpacity={0.8} onPress={() => router.push('/(FleetOperator)/create-flight-plan')}>
         <Ionicons name="add-circle" size={22} color="#fff" />
-        <Text style={styles.addButtonText}>Tạo Mẫu bay mới</Text>
+        <Text style={styles.addButtonText}>Tạo Kế hoạch bay mới</Text>
       </TouchableOpacity>
 
       {loading ? (
@@ -150,7 +154,7 @@ export default function FlightPlansScreen() {
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="folder-open-outline" size={48} color="#ccc" />
-              <Text style={styles.emptyText}>Chưa có mẫu bay nào.</Text>
+              <Text style={styles.emptyText}>Chưa có Kế hoạch bay nào.</Text>
             </View>
           }
         />
@@ -161,24 +165,19 @@ export default function FlightPlansScreen() {
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sửa Mẫu bay</Text>
+              <Text style={styles.modalTitle}>Sửa Kế hoạch bay</Text>
               <TouchableOpacity onPress={() => setEditModalVisible(false)}>
                 <Ionicons name="close" size={24} color="#1F222A" />
               </TouchableOpacity>
             </View>
             <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.label}>Tên mẫu bay (*)</Text>
-              <TextInput
-                style={styles.input}
-                value={editingPlan?.name}
-                onChangeText={(t) => setEditingPlan(prev => prev ? { ...prev, name: t } : null)}
-              />
               <Text style={styles.label}>Ghi chú (Notes)</Text>
               <TextInput
                 style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
                 value={editingPlan?.notes}
                 onChangeText={(t) => setEditingPlan(prev => prev ? { ...prev, notes: t } : null)}
                 multiline
+                placeholder="Nhập mô tả cho Kế hoạch bay..."
               />
               <TouchableOpacity style={styles.primaryBtn} onPress={handleUpdate} disabled={isSubmitting}>
                 {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>CẬP NHẬT</Text>}
