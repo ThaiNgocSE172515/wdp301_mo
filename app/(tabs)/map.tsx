@@ -13,8 +13,8 @@ import { io, Socket } from "socket.io-client";
 // const SIMULATOR_URL = "http://10.139.229.139:3001";
 // const REAL_BE_URL = "http://10.139.229.139:3000";
 
-const SIMULATOR_URL = "http://192.168.137.1:3001";
-const REAL_BE_URL = "http://192.168.137.1:3000";
+const SIMULATOR_URL = "http://192.168.2.106:3001";
+const REAL_BE_URL = "http://192.168.2.106:3000";
 
 type DroneState = {
   droneId: string;
@@ -64,7 +64,7 @@ export default function MapViewerScreen() {
         if (myDrone) {
           setSimulatorDroneId(myDrone.droneId);
           setDroneModel(myDrone.model);
-          
+
           // Trả lại đoạn console.log cho bạn nè:
           console.log("\n=======================================================");
           console.log(`👉 DRONE ID:    ${myDrone.droneId}`);
@@ -188,12 +188,12 @@ export default function MapViewerScreen() {
           try {
             setIsEnding(true);
             await flightSessionApi.endSession(sessionId);
-            
+
             // 💡 FIX LỖI CACHE CỦA TABBAR: Xóa sạch params sau khi kết thúc
-            router.setParams({ 
-              sessionId: '', 
-              connectedDroneId: '', 
-              droneId: '' 
+            router.setParams({
+              sessionId: '',
+              connectedDroneId: '',
+              droneId: ''
             });
 
           } catch (error) {
@@ -227,7 +227,7 @@ export default function MapViewerScreen() {
   return (
     <View style={styles.container}>
       <StatusBar translucent barStyle="light-content" backgroundColor="transparent" />
-      
+
       {/* 💡 CHỈ HIỆN NÚT QUAY LẠI NẾU ĐANG ĐI TỪ PHIÊN BAY VÀO */}
       {isActiveFlight && (
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
@@ -256,7 +256,7 @@ export default function MapViewerScreen() {
           defaultSettings={{
             centerCoordinate: [106.81809, 10.82615],
             zoomLevel: 16,
-            pitch: 65, 
+            pitch: 65,
           }}
           heading={currentDrone.heading || 0}
         />
@@ -284,8 +284,8 @@ export default function MapViewerScreen() {
                 fillColor: [
                   "match",
                   ["get", "type"],
-                  "no_fly", "rgba(255, 59, 48, 0.4)",      
-                  "restricted", "rgba(255, 204, 0, 0.4)", 
+                  "no_fly", "rgba(255, 59, 48, 0.4)",
+                  "restricted", "rgba(255, 204, 0, 0.4)",
                   "rgba(0,0,0,0.1)"
                 ],
                 fillOutlineColor: [
@@ -309,7 +309,7 @@ export default function MapViewerScreen() {
                 circleColor: "#69F0AE",
                 circleStrokeColor: ["case", ["==", ["get", "isConnected"], true], "#00E5FF", "#ffffff"],
                 circleStrokeWidth: 3,
-                circlePitchAlignment: "map", 
+                circlePitchAlignment: "map",
               }}
             />
           </Mapbox.ShapeSource>
@@ -320,7 +320,7 @@ export default function MapViewerScreen() {
       {isActiveFlight && (
         <View style={styles.bottomPanel}>
           <Text style={styles.droneModelName}>{droneModel}</Text>
-          
+
           <View style={styles.subHeaderPanel}>
             <View>
               <Text style={styles.infoText}>

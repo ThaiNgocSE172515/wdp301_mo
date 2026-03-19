@@ -1,10 +1,11 @@
 import flightPlanApi from '@/api/flightPlanApi';
+import zoneApi from '@/api/zoneApi';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Dimensions, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Mapbox from "@rnmapbox/maps";
 import * as turf from '@turf/turf';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, Alert, Dimensions, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -12,6 +13,7 @@ export default function FlightPlanDetailScreen() {
     const router = useRouter();
     const { id } = useLocalSearchParams();
     const [detail, setDetail] = useState<any>(null);
+    const [zones, setZones] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -19,8 +21,16 @@ export default function FlightPlanDetailScreen() {
             if (!id) return;
             try {
                 setLoading(true);
-                const res = await flightPlanApi.getById(id);
+                const [res, zRes] = await Promise.all([
+                    flightPlanApi.getById(id),
+                    zoneApi.getAll({ limit: 100 })
+                ]);
                 setDetail(res.data || res);
+
+                const zoneList = zRes.data?.data || zRes.data || [];
+                if (Array.isArray(zoneList)) {
+                    setZones(zoneList);
+                }
             } catch (error) {
                 Alert.alert("Lỗi", "Không thể lấy chi tiết Kế hoạch bay");
                 router.back();
@@ -39,38 +49,42 @@ export default function FlightPlanDetailScreen() {
     const handleSubmit = async () => {
         Alert.alert("Xác nhận", "Bạn muốn submit kế hoạch bay này để được phê duyệt?", [
             { text: "Không", style: "cancel" },
-            { text: "Đồng ý", onPress: async () => {
-                try {
-                    setLoading(true);
-                    await flightPlanApi.submit(id);
-                    Alert.alert("Thành công", "Đã submit flight plan. Trạng thái đã cập nhật thành APPROVED.");
-                    const res = await flightPlanApi.getById(id);
-                    setDetail(res.data || res);
-                } catch (error: any) {
-                    Alert.alert("Lỗi", error.response?.data?.message || "Không thể submit flight plan");
-                } finally {
-                    setLoading(false);
+            {
+                text: "Đồng ý", onPress: async () => {
+                    try {
+                        setLoading(true);
+                        await flightPlanApi.submit(id);
+                        Alert.alert("Thành công", "Đã submit flight plan. Trạng thái đã cập nhật thành APPROVED.");
+                        const res = await flightPlanApi.getById(id);
+                        setDetail(res.data || res);
+                    } catch (error: any) {
+                        Alert.alert("Lỗi", error.response?.data?.message || "Không thể submit flight plan");
+                    } finally {
+                        setLoading(false);
+                    }
                 }
-            }}
+            }
         ]);
     };
 
     const handleCancel = async () => {
         Alert.alert("Xác nhận", "Bạn muốn hủy kế hoạch bay này?", [
             { text: "Không", style: "cancel" },
-            { text: "Đồng ý", style: "destructive", onPress: async () => {
-                try {
-                    setLoading(true);
-                    await flightPlanApi.cancel(id);
-                    Alert.alert("Thành công", "Đã hủy flight plan");
-                    const res = await flightPlanApi.getById(id);
-                    setDetail(res.data || res);
-                } catch (error: any) {
-                    Alert.alert("Lỗi", error.response?.data?.message || "Không thể hủy flight plan");
-                } finally {
-                    setLoading(false);
+            {
+                text: "Đồng ý", style: "destructive", onPress: async () => {
+                    try {
+                        setLoading(true);
+                        await flightPlanApi.cancel(id);
+                        Alert.alert("Thành công", "Đã hủy flight plan");
+                        const res = await flightPlanApi.getById(id);
+                        setDetail(res.data || res);
+                    } catch (error: any) {
+                        Alert.alert("Lỗi", error.response?.data?.message || "Không thể hủy flight plan");
+                    } finally {
+                        setLoading(false);
+                    }
                 }
-            }}
+            }
         ]);
     };
 
@@ -78,21 +92,28 @@ export default function FlightPlanDetailScreen() {
         if (!detail?.waypoints || detail.waypoints.length < 2) return null;
         return turf.lineString(detail.waypoints.map((w: any) => [w.longitude, w.latitude]));
     }, [detail?.waypoints]);
-    
+
+    const zonesGeoJSON = useMemo(() => {
+        if (zones.length === 0) return null;
+        return turf.featureCollection(
+            zones.map(z => turf.feature(z.geometry, { type: z.type, name: z.name }))
+        );
+    }, [zones]);
+
     // Calculate map bounds
     const defaultCameraSettings = useMemo(() => {
         if (!detail?.waypoints || detail.waypoints.length === 0) {
             return { centerCoordinate: [106.6297, 10.8231], zoomLevel: 14 };
         }
-        
+
         if (detail.waypoints.length === 1) {
             return { centerCoordinate: [detail.waypoints[0].longitude, detail.waypoints[0].latitude], zoomLevel: 16 };
         }
-        
+
         // Use turf to find bbox of line
         const line = turf.lineString(detail.waypoints.map((w: any) => [w.longitude, w.latitude]));
         const bbox = turf.bbox(line); // [minX, minY, maxX, maxY]
-        
+
         return {
             bounds: {
                 ne: [bbox[2], bbox[3]],
@@ -130,10 +151,16 @@ export default function FlightPlanDetailScreen() {
 
             <ScrollView contentContainerStyle={styles.content}>
                 <View style={styles.mainCard}>
-                    <Text style={styles.mainTitle}>{detail.notes || 'Không có mô tả'}</Text>
+                    <Text style={styles.mainTitle}>{detail._id.slice(-6).toUpperCase() || 'Không có mô tả'}</Text>
                     <View style={styles.statusBadge}>
                         <Text style={styles.statusText}>{detail.status}</Text>
                     </View>
+                    <View style={styles.infoRow}>
+                        <Ionicons name="book-outline" size={20} color="#555" />
+                        <Text style={styles.infoLabel}>Ghi chú:</Text>
+                        <Text style={styles.infoValue}>{detail.notes || 'Chưa rõ'}</Text>
+                    </View>
+
                 </View>
 
                 <View style={styles.section}>
@@ -149,14 +176,15 @@ export default function FlightPlanDetailScreen() {
                             <Text style={styles.infoLabel}>Mã Drone:</Text>
                             <Text style={styles.infoValue}>{droneStats.droneId || 'Chưa rõ'}</Text>
                         </View>
+
                     </View>
                 </View>
 
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Bản đồ Lộ trình</Text>
                     <View style={styles.mapContainer}>
-                        <Mapbox.MapView 
-                            style={{ flex: 1 }} 
+                        <Mapbox.MapView
+                            style={{ flex: 1 }}
                             styleURL={Mapbox.StyleURL.SatelliteStreet}
                             logoEnabled={false}
                             attributionEnabled={false}
@@ -166,6 +194,30 @@ export default function FlightPlanDetailScreen() {
                             <Mapbox.Camera
                                 defaultSettings={defaultCameraSettings}
                             />
+
+                            {zonesGeoJSON && (
+                                <Mapbox.ShapeSource id="zones-source" shape={zonesGeoJSON as any}>
+                                    <Mapbox.FillLayer
+                                        id="zones-fill"
+                                        style={{
+                                            fillColor: [
+                                                "match",
+                                                ["get", "type"],
+                                                "no_fly", "rgba(255, 59, 48, 0.4)",
+                                                "restricted", "rgba(255, 204, 0, 0.4)",
+                                                "rgba(0,0,0,0.1)"
+                                            ],
+                                            fillOutlineColor: [
+                                                "match",
+                                                ["get", "type"],
+                                                "no_fly", "#FF3B30",
+                                                "restricted", "#FFCC00",
+                                                "#000"
+                                            ]
+                                        }}
+                                    />
+                                </Mapbox.ShapeSource>
+                            )}
 
                             {/* VẼ ĐƯỜNG */}
                             {lineGeoJSON && (
@@ -237,7 +289,7 @@ export default function FlightPlanDetailScreen() {
                 <View style={styles.bottomBar}>
                     <TouchableOpacity style={styles.submitBtn} onPress={handleSubmit}>
                         <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
-                        <Text style={styles.actionBtnText}>Submit Duyệt</Text>
+                        <Text style={styles.actionBtnText}>Duyệt</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.cancelBtn} onPress={handleCancel}>
                         <Ionicons name="close-circle-outline" size={20} color="#D32F2F" />

@@ -2,6 +2,7 @@
 import droneApi from '@/api/droneApi';
 import flightPlanApi from '@/api/flightPlanApi';
 import missionApi from '@/api/missionApi';
+import zoneApi from '@/api/zoneApi';
 import { Ionicons } from '@expo/vector-icons';
 import Mapbox from "@rnmapbox/maps";
 import * as turf from '@turf/turf';
@@ -27,6 +28,7 @@ export default function MissionDetailScreen() {
   const router = useRouter();
   const cameraRef = useRef<Mapbox.Camera>(null);
   const [mission, setMission] = useState<Mission>();
+  const [zones, setZones] = useState<any[]>([]);
   const [dronesMap, setDronesMap] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -35,6 +37,7 @@ export default function MissionDetailScreen() {
   const [availableFlightPlans, setAvailableFlightPlans] = useState<any[]>([]);
   const [selectedForAdd, setSelectedForAdd] = useState<string | null>(null);
   const [plannedStartInput, setPlannedStartInput] = useState<string>('');
+  const [isMapFullscreen, setIsMapFullscreen] = useState(false);
   const { missionId } = useLocalSearchParams();
 
   useEffect(() => {
@@ -54,6 +57,16 @@ export default function MissionDetailScreen() {
           setDronesMap(dMap);
         } catch (e) {
           console.log("Could not fetch drones", e);
+        }
+
+        try {
+          const zRes = await zoneApi.getAll({ limit: 100 });
+          const zoneList = zRes.data?.data || zRes.data || [];
+          if (Array.isArray(zoneList)) {
+            setZones(zoneList);
+          }
+        } catch (err) {
+          console.error("Lỗi tải zone:", err);
         }
       } catch (e) {
         console.log("Đã xảy ra lỗi khi fetch api lấy mission theo id: ", e)
@@ -288,7 +301,6 @@ export default function MissionDetailScreen() {
 
   const getStatusText = (status: string) => {
     switch (status) {
-      case 'DRAFT': return 'Bản nháp';
       case 'SCHEDULED': return 'Đã lên lịch';
       case 'IN_PROGRESS': return 'Đang thực hiện';
       case 'COMPLETED': return 'Hoàn thành';
@@ -312,8 +324,24 @@ export default function MissionDetailScreen() {
     return `Drone ID: ${droneIdStr ? formatId(droneIdStr) : 'Unknown'}`;
   };
 
+  const zonesGeoJSON = useMemo(() => {
+    if (zones.length === 0) return null;
+    return turf.featureCollection(
+      zones.map(z => turf.feature(z.geometry, { type: z.type, name: z.name }))
+    );
+  }, [zones]);
+
   const defaultCameraSettings = useMemo(() => {
     if (!mission?.missionPlans || mission.missionPlans.length === 0) {
+      if (zones.length > 0) {
+        try {
+          const firstZone = zones[0];
+          if (firstZone.geometry) {
+            const center = turf.center(firstZone.geometry as any);
+            return { centerCoordinate: center.geometry.coordinates, zoomLevel: 11 };
+          }
+        } catch (e) {}
+      }
       return { centerCoordinate: [106.6297, 10.8231], zoomLevel: 14 };
     }
     const allCoords: any[] = [];
@@ -358,31 +386,16 @@ export default function MissionDetailScreen() {
     } catch {
       return { centerCoordinate: allCoords[0], zoomLevel: 14 };
     }
-  }, [mission?.missionPlans]);
+  }, [mission?.missionPlans, zones]);
 
-  return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color="#1F222A" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Chi tiết Kế hoạch</Text>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          {mission?.mission?.status === 'DRAFT' && (
-            <TouchableOpacity style={styles.actionBtn} onPress={openEditMission}>
-              <Ionicons name="create-outline" size={22} color="#1565C0" />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.actionBtn} onPress={handleDeleteMission}>
-            <Ionicons name="trash-outline" size={22} color="#D32F2F" />
-          </TouchableOpacity>
-        </View>
-      </View>
+  useEffect(() => {
+    if (cameraRef.current) {
+      cameraRef.current.setCamera({ ...defaultCameraSettings, animationDuration: 500 } as any);
+    }
+  }, [defaultCameraSettings]);
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* Bản đồ khu vực bay */}
-        <View style={styles.mapContainer}>
+  const renderMapBox = (isFullscreen: boolean) => (
+        <View style={isFullscreen ? { flex: 1 } : styles.mapContainer}>
           <Mapbox.MapView
             style={{ flex: 1 }}
             styleURL={Mapbox.StyleURL.SatelliteStreet}
@@ -391,7 +404,31 @@ export default function MissionDetailScreen() {
             scrollEnabled={true}
             zoomEnabled={true}
           >
-            <Mapbox.Camera defaultSettings={defaultCameraSettings as any} />
+            <Mapbox.Camera ref={cameraRef} defaultSettings={defaultCameraSettings as any} />
+
+            {zonesGeoJSON && (
+              <Mapbox.ShapeSource id="zones-source" shape={zonesGeoJSON as any}>
+                <Mapbox.FillLayer
+                  id="zones-fill"
+                  style={{
+                    fillColor: [
+                      "match",
+                      ["get", "type"],
+                      "no_fly", "rgba(255, 59, 48, 0.4)",      
+                      "restricted", "rgba(255, 204, 0, 0.4)", 
+                      "rgba(0,0,0,0.1)"
+                    ],
+                    fillOutlineColor: [
+                      "match",
+                      ["get", "type"],
+                      "no_fly", "#FF3B30",
+                      "restricted", "#FFCC00",
+                      "#000"
+                    ]
+                  }}
+                />
+              </Mapbox.ShapeSource>
+            )}
 
             {/* RENDER LINES */}
             {mission?.missionPlans?.map((plan: any, index: number) => {
@@ -433,10 +470,46 @@ export default function MissionDetailScreen() {
             ))}
           </Mapbox.MapView>
 
-          <View style={styles.statusOverlay}>
-            <Text style={styles.statusOverlayText}>{getStatusText(mission?.mission?.status || '')}</Text>
-          </View>
+          {!isFullscreen && (
+            <View style={styles.statusOverlay}>
+              <Text style={styles.statusOverlayText}>{getStatusText(mission?.mission?.status || '')}</Text>
+            </View>
+          )}
+
+          {!isFullscreen && (
+            <TouchableOpacity
+              style={{ position: 'absolute', top: 10, right: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2 }}
+              onPress={() => setIsMapFullscreen(true)}
+            >
+              <Ionicons name="expand" size={20} color="#333" />
+            </TouchableOpacity>
+          )}
         </View>
+  );
+
+  return (
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color="#1F222A" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Chi tiết Kế hoạch</Text>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          {mission?.mission?.status === 'DRAFT' && (
+            <TouchableOpacity style={styles.actionBtn} onPress={openEditMission}>
+              <Ionicons name="create-outline" size={22} color="#1565C0" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={styles.actionBtn} onPress={handleDeleteMission}>
+            <Ionicons name="trash-outline" size={22} color="#D32F2F" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {/* Bản đồ khu vực bay */}
+        {!isMapFullscreen && renderMapBox(false)}
 
         {/* Thông tin chung */}
         <View style={styles.section}>
@@ -557,7 +630,12 @@ export default function MissionDetailScreen() {
                       <Ionicons name="map" size={20} color="#1565C0" />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.flightPlanItemTitle}>{item.notes || 'Không có mô tả'}</Text>
+                      <Text style={styles.flightPlanItemTitle}>FP-{item._id.slice(-6).toUpperCase()}</Text>
+                      {item.notes ? (
+                        <Text style={[styles.flightPlanItemDesc, { color: '#444', marginBottom: 2 }]} numberOfLines={2}>
+                          {item.notes}
+                        </Text>
+                      ) : null}
                       <Text style={styles.flightPlanItemDesc} numberOfLines={1}>
                         <Ionicons name="hardware-chip-outline" size={12} /> {getDroneInfo(item.drone)}
                       </Text>
@@ -573,9 +651,6 @@ export default function MissionDetailScreen() {
                         onChangeText={setPlannedStartInput}
                         placeholder="Ví dụ: 2026-03-20 08:30"
                       />
-                      <Text style={{ fontSize: 12, color: '#E65100', marginTop: 8, fontStyle: 'italic' }}>
-                        * Giờ kết thúc bị ẩn và được cấu hình tự động cộng thêm 2 giờ.
-                      </Text>
                       <TouchableOpacity style={[styles.primaryBtn, { height: 45, marginTop: 15 }]} onPress={confirmAddPlan}>
                         <Text style={styles.primaryBtnText}>Xác nhận thêm</Text>
                       </TouchableOpacity>
@@ -586,6 +661,24 @@ export default function MissionDetailScreen() {
               ListEmptyComponent={<Text style={{ textAlign: 'center', color: '#888', marginTop: 20 }}>Không có kế hoạch bay nào sẵn sàng.</Text>}
             />
           </View>
+        </View>
+      </Modal>
+
+      {/* MODAL FULL SCREEN MAP */}
+      <Modal visible={isMapFullscreen} transparent animationType="slide">
+        <View style={{ flex: 1, backgroundColor: '#F9F9F9' }}>
+          <SafeAreaView style={{ flex: 1 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#EEE' }}>
+              <View>
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1F222A' }}>Bản đồ lộ trình bay</Text>
+                <Text style={{ fontSize: 13, color: '#0055FF', fontWeight: 'bold' }}>{mission?.missionPlans?.length || 0} kế hoạch</Text>
+              </View>
+              <TouchableOpacity onPress={() => setIsMapFullscreen(false)}>
+                <Ionicons name="contract" size={28} color="#333" />
+              </TouchableOpacity>
+            </View>
+            {isMapFullscreen && renderMapBox(true)}
+          </SafeAreaView>
         </View>
       </Modal>
 

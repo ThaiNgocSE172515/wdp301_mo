@@ -35,13 +35,12 @@ export default function MissionListScreen() {
     switch (status) {
       case 'IN_PROGRESS': return { color: '#2E7D32', bg: '#2E7D3220', text: 'Đang bay' };
       case 'COMPLETED': return { color: '#1565C0', bg: '#1565C020', text: 'Hoàn thành' };
-      case 'DRAFT': return { color: '#E65100', bg: '#E6510020', text: 'Bản nháp' };
+      case 'DRAFT': return { color: '#E65100', bg: '#E6510020', text: 'Draft' };
       case 'SCHEDULED': return { color: '#8E24AA', bg: '#8E24AA20', text: 'Đã lên lịch' };
       default: return { color: '#757575', bg: '#75757520', text: status || 'Không rõ' };
     }
   };
 
-  // Hàm format ngày từ ISO string (2026-03-17T09:21:29) sang DD/MM/YYYY
   const formatDate = (isoString: any) => {
     if (!isoString) return 'Chưa có ngày';
     const date = new Date(isoString);
@@ -55,11 +54,9 @@ export default function MissionListScreen() {
       <TouchableOpacity
         style={styles.missionCard}
         activeOpacity={0.8}
-        // Đã sửa lại thành item._id
         onPress={() => router.push({ pathname: '/(FleetOperator)/mission-detail', params: { missionId: item._id } })}
       >
         <View style={styles.cardHeader}>
-          {/* Đã sửa thành item.name */}
           <Text style={styles.missionTitle} numberOfLines={2}>{item.name}</Text>
           <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
             <Text style={[styles.statusText, { color: statusStyle.color }]}>{statusStyle.text}</Text>

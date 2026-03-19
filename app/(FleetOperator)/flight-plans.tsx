@@ -22,10 +22,6 @@ export default function FlightPlansScreen() {
   const [listData, setListData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [editingPlan, setEditingPlan] = useState<{ _id: string, notes: string, drone: string, priority: number, waypoints: any[] } | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
   const fetchFlightPlans = async () => {
     try {
       setLoading(true);
@@ -65,37 +61,7 @@ export default function FlightPlansScreen() {
   };
 
   const openEditModal = (item: any) => {
-    setEditingPlan({
-      _id: item._id,
-      notes: item.notes || '',
-      drone: item.drone?._id || item.drone,
-      priority: item.priority || 0,
-      waypoints: item.waypoints || []
-    });
-    setEditModalVisible(true);
-  };
-
-  const handleUpdate = async () => {
-    if (!editingPlan?.notes) {
-      Alert.alert("Lỗi", "Ghi chú/Mô tả không được để trống");
-      return;
-    }
-    try {
-      setIsSubmitting(true);
-      await flightPlanApi.update(editingPlan._id, {
-        notes: editingPlan.notes,
-        drone: editingPlan.drone,
-        priority: editingPlan.priority,
-        waypoints: editingPlan.waypoints
-      });
-      Alert.alert("Thành công", "Đã cập nhật Kế hoạch bay");
-      setEditModalVisible(false);
-      fetchFlightPlans();
-    } catch (e) {
-      Alert.alert("Lỗi", "Không thể cập nhật Kế hoạch bay");
-    } finally {
-      setIsSubmitting(false);
-    }
+    router.push({ pathname: '/(FleetOperator)/create-flight-plan', params: { id: item._id } });
   };
 
   const renderItem = ({ item }: { item: any }) => (
@@ -108,7 +74,12 @@ export default function FlightPlansScreen() {
         <Ionicons name="earth" size={24} color="#E65100" />
       </View>
       <View style={styles.itemInfo}>
-        <Text style={styles.itemTitle}>{item.notes || 'Gói bay không tên'}</Text>
+        <Text style={styles.itemTitle}>{item._id.slice(-6).toUpperCase()}</Text>
+        {item.notes ? (
+          <Text style={[styles.itemDroneSubtitle, { color: '#444', marginBottom: 2 }]} numberOfLines={2}>
+            {item.notes}
+          </Text>
+        ) : null}
         <Text style={styles.itemDroneSubtitle} numberOfLines={1}>
           <Ionicons name="hardware-chip-outline" size={14} /> {item.drone?.model || 'Chưa gán Drone'}
         </Text>
@@ -159,33 +130,6 @@ export default function FlightPlansScreen() {
           }
         />
       )}
-
-      {/* Edit Modal */}
-      <Modal visible={editModalVisible} transparent={true} animationType="slide">
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sửa Kế hoạch bay</Text>
-              <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#1F222A" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.label}>Ghi chú (Notes)</Text>
-              <TextInput
-                style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
-                value={editingPlan?.notes}
-                onChangeText={(t) => setEditingPlan(prev => prev ? { ...prev, notes: t } : null)}
-                multiline
-                placeholder="Nhập mô tả cho Kế hoạch bay..."
-              />
-              <TouchableOpacity style={styles.primaryBtn} onPress={handleUpdate} disabled={isSubmitting}>
-                {isSubmitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>CẬP NHẬT</Text>}
-              </TouchableOpacity>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -209,13 +153,4 @@ const styles = StyleSheet.create({
 
   emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 50 },
   emptyText: { marginTop: 15, color: '#888', fontSize: 15 },
-
-  modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  modalTitle: { fontSize: 20, fontWeight: 'bold', color: '#1F222A' },
-  label: { fontSize: 14, fontWeight: 'bold', color: '#1F222A', marginBottom: 8, marginTop: 10 },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 15, fontSize: 16, color: '#1F222A', backgroundColor: '#F9F9F9' },
-  primaryBtn: { backgroundColor: '#0055FF', borderRadius: 12, height: 55, justifyContent: 'center', alignItems: 'center', marginTop: 20 },
-  primaryBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });

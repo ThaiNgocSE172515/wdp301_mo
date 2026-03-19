@@ -1,9 +1,10 @@
 import droneApi from '@/api/droneApi';
 import flightPlanApi from '@/api/flightPlanApi';
+import zoneApi from '@/api/zoneApi';
 import { Ionicons } from '@expo/vector-icons';
 import Mapbox from "@rnmapbox/maps";
 import * as turf from '@turf/turf';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -11,6 +12,8 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export default function CreateFlightPlanScreen() {
   const router = useRouter();
+  const { id } = useLocalSearchParams();
+  const isEditing = !!id;
   const cameraRef = useRef<Mapbox.Camera>(null);
 
   const [loading, setLoading] = useState(false);
@@ -22,6 +25,8 @@ export default function CreateFlightPlanScreen() {
     drone: '',
     priority: 1,
   });
+
+  const [zones, setZones] = useState<any[]>([]);
 
   const [selectedDroneName, setSelectedDroneName] = useState('');
   const [activeTab, setActiveTab] = useState<'MAP' | 'LIST'>('MAP');
@@ -45,12 +50,92 @@ export default function CreateFlightPlanScreen() {
         console.error("Lỗi lấy danh sách drone", err);
       }
     };
+    const fetchZones = async () => {
+      try {
+        const zRes = await zoneApi.getAll({ limit: 100 });
+        const zoneList = zRes.data?.data || zRes.data || [];
+        if (Array.isArray(zoneList)) {
+          setZones(zoneList);
+        }
+      } catch (err) {
+        console.error("Lỗi tải zone:", err);
+      }
+    };
+    
+    const fetchFlightPlanDetails = async () => {
+      if (!id) return;
+      try {
+        const res = await flightPlanApi.getById(id as string);
+        const data = res.data || res;
+        setFormData({
+          notes: data.notes || '',
+          drone: data.drone?._id || data.drone || '',
+          priority: data.priority || 1,
+        });
+        if (data.drone && typeof data.drone === 'object') {
+          setSelectedDroneName(`${data.drone.model || ''} (${data.drone.droneId || ''})`);
+        }
+        if (data.waypoints && data.waypoints.length > 0) {
+          setWaypoints(data.waypoints.map((wp: any) => ({
+            latitude: wp.latitude,
+            longitude: wp.longitude,
+            altitude: wp.altitude,
+            speed: wp.speed,
+            action: wp.action
+          })));
+        }
+      } catch (err) {
+        console.error("Lỗi tải chi tiết kế hoạch bay:", err);
+      }
+    };
+
     fetchDrones();
-  }, []);
+    fetchZones();
+    if (isEditing) {
+      fetchFlightPlanDetails();
+    }
+  }, [id, isEditing]);
 
   const handleMapPress = (feature: any) => {
     if (!feature || !feature.geometry || !feature.geometry.coordinates) return;
     const coords = feature.geometry.coordinates; // [lng, lat]
+    const point = turf.point(coords);
+
+    let warningZone = null;
+    let lineSegment: any = null;
+    
+    if (waypoints.length > 0) {
+      const lastWp = waypoints[waypoints.length - 1];
+      lineSegment = turf.lineString([[lastWp.longitude, lastWp.latitude], coords]);
+    }
+
+    for (const z of zones) {
+      if (z.geometry) {
+        try {
+          const isPointInside = turf.booleanPointInPolygon(point, z.geometry as any);
+          let isLineIntersecting = false;
+          
+          if (lineSegment) {
+              isLineIntersecting = turf.booleanIntersects(lineSegment, z.geometry as any);
+          }
+          
+          if (isPointInside || isLineIntersecting) {
+            warningZone = z;
+            break;
+          }
+        } catch (e) {
+          // Ignore parse errors from invalid geometries
+        }
+      }
+    }
+
+    if (warningZone) {
+      if (warningZone.type === 'no_fly') {
+        Alert.alert("Cảnh báo rủi ro", `Lộ trình của bạn đi qua Vùng cấm bay: ${warningZone.name}. Bạn sẽ phải hoàn toàn chịu trách nhiệm về quyết định bay này!`);
+      } else {
+        Alert.alert("Chú ý", `Lộ trình của bạn đi qua Vùng hạn chế: ${warningZone.name}. Bạn sẽ phải tự chịu trách nhiệm về an toàn bay.`);
+      }
+    }
 
     setWaypoints(prev => [
       ...prev,
@@ -110,17 +195,66 @@ export default function CreateFlightPlanScreen() {
 
     try {
       setLoading(true);
-      await flightPlanApi.create(payload);
-      Alert.alert("Thành công", "Đã tạo mẫu kế hoạch bay mới", [
-        { text: "OK", onPress: () => router.back() }
-      ]);
+      if (isEditing) {
+        await flightPlanApi.update(id as string, payload);
+        Alert.alert("Thành công", "Đã cập nhật kế hoạch bay", [
+          { text: "OK", onPress: () => router.back() }
+        ]);
+      } else {
+        await flightPlanApi.create(payload);
+        Alert.alert("Thành công", "Đã tạo mẫu kế hoạch bay mới", [
+          { text: "OK", onPress: () => router.back() }
+        ]);
+      }
     } catch (e: any) {
       const errorMsg = e.response?.data?.message || e.message || "Lỗi không xác định";
-      Alert.alert("Lỗi", `Không thể tạo flight plan: ${errorMsg}`);
+      Alert.alert("Lỗi", `Không thể lưu flight plan: ${errorMsg}`);
     } finally {
       setLoading(false);
     }
   };
+
+  const defaultCameraSettings = useMemo(() => {
+    if (waypoints.length > 0) {
+      if (waypoints.length === 1) {
+        return { centerCoordinate: [waypoints[0].longitude, waypoints[0].latitude], zoomLevel: 14 };
+      }
+      try {
+        const line = turf.lineString(waypoints.map(w => [w.longitude, w.latitude]));
+        const bbox = turf.bbox(line);
+        return {
+          bounds: {
+            ne: [bbox[2], bbox[3]],
+            sw: [bbox[0], bbox[1]],
+            paddingTop: 50, paddingBottom: 50, paddingLeft: 50, paddingRight: 50
+          }
+        };
+      } catch (e) {
+        return { centerCoordinate: [waypoints[0].longitude, waypoints[0].latitude], zoomLevel: 14 };
+      }
+    }
+    
+    if (zones.length > 0) {
+      try {
+        const firstZone = zones[0];
+        if (firstZone.geometry) {
+           // Provide a wider view of the restricted areas
+           const center = turf.center(firstZone.geometry as any);
+           return { centerCoordinate: center.geometry.coordinates, zoomLevel: 11 };
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+    
+    return { centerCoordinate: [106.6297, 10.8231], zoomLevel: 14 }; // HCM default
+  }, [waypoints, zones]);
+
+  useEffect(() => {
+    if (cameraRef.current) {
+      cameraRef.current.setCamera({ ...defaultCameraSettings, animationDuration: 500 } as any);
+    }
+  }, [defaultCameraSettings]);
 
   const pointsGeoJSON = useMemo(() => {
     if (waypoints.length === 0) return null;
@@ -134,6 +268,13 @@ export default function CreateFlightPlanScreen() {
     return turf.lineString(waypoints.map(w => [w.longitude, w.latitude]));
   }, [waypoints]);
 
+  const zonesGeoJSON = useMemo(() => {
+    if (zones.length === 0) return null;
+    return turf.featureCollection(
+      zones.map(z => turf.feature(z.geometry, { type: z.type, name: z.name }))
+    );
+  }, [zones]);
+
   const renderMapBox = (isFullscreen: boolean) => (
     <View style={isFullscreen ? { flex: 1 } : styles.mapContainer}>
       <Mapbox.MapView
@@ -145,11 +286,32 @@ export default function CreateFlightPlanScreen() {
       >
         <Mapbox.Camera
           ref={cameraRef}
-          defaultSettings={{
-            centerCoordinate: [106.6297, 10.8231], // HCM default
-            zoomLevel: 14,
-          }}
+          defaultSettings={defaultCameraSettings as any}
         />
+
+        {zonesGeoJSON && (
+          <Mapbox.ShapeSource id="zones-source" shape={zonesGeoJSON as any}>
+            <Mapbox.FillLayer
+              id="zones-fill"
+              style={{
+                fillColor: [
+                  "match",
+                  ["get", "type"],
+                  "no_fly", "rgba(255, 59, 48, 0.4)",      
+                  "restricted", "rgba(255, 204, 0, 0.4)", 
+                  "rgba(0,0,0,0.1)"
+                ],
+                fillOutlineColor: [
+                  "match",
+                  ["get", "type"],
+                  "no_fly", "#FF3B30",
+                  "restricted", "#FFCC00",
+                  "#000"
+                ]
+              }}
+            />
+          </Mapbox.ShapeSource>
+        )}
 
         {/* VẼ ĐƯỜNG */}
         {lineGeoJSON && (
@@ -208,7 +370,7 @@ export default function CreateFlightPlanScreen() {
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#1F222A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Tạo kế hoạch bay</Text>
+        <Text style={styles.headerTitle}>{isEditing ? 'Sửa kế hoạch bay' : 'Tạo kế hoạch bay'}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -317,8 +479,8 @@ export default function CreateFlightPlanScreen() {
             <ActivityIndicator color="#fff" />
           ) : (
             <>
-              <Ionicons name="cloud-upload-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
-              <Text style={styles.submitBtnText}>Tạo kế hoạch bay</Text>
+              <Ionicons name={isEditing ? "save-outline" : "cloud-upload-outline"} size={20} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={styles.submitBtnText}>{isEditing ? 'CẬP NHẬT KẾ HOẠCH BÀY' : 'TẠO KẾ HOẠCH BÀY'}</Text>
             </>
           )}
         </TouchableOpacity>
