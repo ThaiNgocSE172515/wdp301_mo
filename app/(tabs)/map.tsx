@@ -7,8 +7,9 @@ import Mapbox from "@rnmapbox/maps";
 import * as turf from '@turf/turf';
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, StatusBar, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Platform, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { io, Socket } from "socket.io-client";
+import FavouriteApi from '@/api/favouriteApi';
 
 // const SIMULATOR_URL = "http://10.139.229.139:3001";
 // const REAL_BE_URL = "http://10.139.229.139:3000";
@@ -53,11 +54,70 @@ export default function MapViewerScreen() {
   const simSocketRef = useRef<Socket | null>(null);
   const beSocketRef = useRef<Socket | null>(null);
 
-  // 1. TẢI DATA BAN ĐẦU
+  // States for map selection and favourite
+  const [selectedPoint, setSelectedPoint] = useState<{lat: number, lng: number} | null>(null);
+  const [distanceToSelected, setDistanceToSelected] = useState<number | null>(null);
+  const [favouriteName, setFavouriteName] = useState<string>('');
+  const [isSavingFav, setIsSavingFav] = useState(false);
+  const [userId, setUserId] = useState<string>('');
+  const [favouritesList, setFavouritesList] = useState<any[]>([]);
+  const [mapReady, setMapReady] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  const favLat = params.favLat as string;
+  const favLng = params.favLng as string;
+
+  useEffect(() => {
+    const fetchUser = async () => {
+      const id = await AsyncStorage.getItem("USER_PROFILE_ID");
+      if (id) {
+        const parsedId = JSON.parse(id);
+        setUserId(parsedId);
+        
+        try {
+          const res = await FavouriteApi.get(parsedId);
+          const list = res?.data?.data || res?.data || res || [];
+          if (Array.isArray(list)) setFavouritesList(list);
+        } catch (error) {
+          console.error("Lỗi lấy danh sách yêu thích:", error);
+        }
+      }
+    };
+    fetchUser();
+  }, []);
+
+  // Track keyboard height for absolute panel
+  useEffect(() => {
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  // Di chuyển camera khi đi từ tab Favourite sang và map đã sẵn sàng
+  useEffect(() => {
+    if (favLat && favLng && mapReady && cameraRef.current) {
+      const lat = parseFloat(favLat);
+      const lng = parseFloat(favLng);
+
+      // Chỉ bay đến điểm, KHÔNG mở form nhập (điểm đã là yêu thích rồi)
+      cameraRef.current.setCamera({
+        centerCoordinate: [lng, lat],
+        zoomLevel: 18,
+        animationDuration: 800,
+      });
+    }
+  }, [favLat, favLng, mapReady]);
+
   useEffect(() => {
     const initData = async () => {
       try {
-        // Lấy thông tin Drone
         const dRes = await droneApi.getAll();
         const myDrone = dRes.data.find((d: any) => d._id === connectedMongoId);
 
@@ -65,7 +125,6 @@ export default function MapViewerScreen() {
           setSimulatorDroneId(myDrone.droneId);
           setDroneModel(myDrone.model);
 
-          // Trả lại đoạn console.log cho bạn nè:
           console.log("\n=======================================================");
           console.log(`👉 DRONE ID:    ${myDrone.droneId}`);
           console.log(`👉 SESSION ID:  ${sessionId}`);
@@ -73,7 +132,6 @@ export default function MapViewerScreen() {
         }
 
         const zRes = await zoneApi.getAll({ limit: 100 });
-        // Lấy data an toàn đề phòng API trả về cấu trúc bọc 2 lớp data
         const zoneList = zRes.data?.data || zRes.data || [];
         if (Array.isArray(zoneList)) {
           setZones(zoneList);
@@ -207,6 +265,64 @@ export default function MapViewerScreen() {
     ]);
   };
 
+  const currentDrone = drones[simulatorDroneId] || { speed: 0, altitude: 0, heading: 0, batteryLevel: 100, lng: 106.81809, lat: 10.82615 };
+
+  const handleMapPress = (e: any) => {
+    if (!e || !e.geometry || !e.geometry.coordinates) return;
+    const [lng, lat] = e.geometry.coordinates;
+    setSelectedPoint({ lat, lng });
+
+    const fromLng = currentDrone?.lng || 106.81809;
+    const fromLat = currentDrone?.lat || 10.82615;
+    
+    if (fromLng && fromLat) {
+      const distance = turf.distance(
+        turf.point([fromLng, fromLat]),
+        turf.point([lng, lat]),
+        { units: 'kilometers' }
+      );
+      setDistanceToSelected(distance);
+    }
+  };
+
+  const handleSaveFavourite = async () => {
+    if (!selectedPoint || !userId) {
+      Alert.alert("Lỗi", "Vui lòng chọn điểm và đảm bảo đã đăng nhập.");
+      return;
+    }
+    if (!favouriteName.trim()) {
+      Alert.alert("Lỗi", "Vui lòng nhập tên địa điểm.");
+      return;
+    }
+    
+    try {
+      setIsSavingFav(true);
+      await FavouriteApi.create({
+        user_id: userId,
+        location: { type: 'Point', coordinates: [selectedPoint.lng, selectedPoint.lat] },
+        name: favouriteName,
+        address: `Tọa độ: ${selectedPoint.lat.toFixed(5)}, ${selectedPoint.lng.toFixed(5)}`,
+        numberOfFlight: 0
+      });
+
+      // Update local list to show the new heart immediately
+      setFavouritesList(prev => [...prev, {
+        _id: Math.random().toString(),
+        name: favouriteName,
+        location: { lat: selectedPoint.lat, lng: selectedPoint.lng }
+      }]);
+
+      Alert.alert("Thành công", "Đã lưu địa điểm yêu thích!");
+      setSelectedPoint(null);
+      setFavouriteName('');
+      setDistanceToSelected(null);
+    } catch (error: any) {
+      Alert.alert("Lỗi", error?.message || "Không thể lưu địa điểm.");
+    } finally {
+      setIsSavingFav(false);
+    }
+  };
+
   const dronesGeoJSON = useMemo(() => {
     const list = Object.values(drones);
     if (list.length === 0) return null;
@@ -221,8 +337,6 @@ export default function MapViewerScreen() {
       zones.map(z => turf.feature(z.geometry, { type: z.type, name: z.name }))
     );
   }, [zones]);
-
-  const currentDrone = drones[simulatorDroneId] || { speed: 0, altitude: 0, heading: 0, batteryLevel: 100 };
 
   return (
     <View style={styles.container}>
@@ -250,7 +364,12 @@ export default function MapViewerScreen() {
         </View>
       )}
 
-      <Mapbox.MapView style={styles.map} styleURL={Mapbox.StyleURL.SatelliteStreet}>
+      <Mapbox.MapView
+        style={styles.map}
+        styleURL={Mapbox.StyleURL.SatelliteStreet}
+        onPress={handleMapPress}
+        onDidFinishLoadingMap={() => setMapReady(true)}
+      >
         <Mapbox.Camera
           ref={cameraRef}
           defaultSettings={{
@@ -314,6 +433,35 @@ export default function MapViewerScreen() {
             />
           </Mapbox.ShapeSource>
         )}
+
+        {selectedPoint && (
+          <Mapbox.ShapeSource id="selected-point-source" shape={turf.point([selectedPoint.lng, selectedPoint.lat]) as any}>
+            <Mapbox.CircleLayer
+              id="selected-point-circle"
+              style={{
+                circleRadius: 8,
+                circleColor: '#FF3B30',
+                circleStrokeColor: '#FFFFFF',
+                circleStrokeWidth: 2,
+              }}
+            />
+          </Mapbox.ShapeSource>
+        )}
+
+        {favouritesList.map((fav, index) => {
+          if (!fav.location || !fav.location.lng || !fav.location.lat) return null;
+          return (
+            <Mapbox.PointAnnotation
+              key={`fav-${fav._id || index}`}
+              id={`fav-anno-${fav._id || index}`}
+              coordinate={[fav.location.lng, fav.location.lat]}
+            >
+              <View style={styles.heartMarker}>
+                <Ionicons name="heart" size={24} color="#FF3B30" />
+              </View>
+            </Mapbox.PointAnnotation>
+          );
+        })}
       </Mapbox.MapView>
 
       {/* 💡 CHỈ HIỆN KHUNG ĐIỀU KHIỂN & KẾT THÚC BAY NẾU ĐANG LÀ CHUYẾN BAY ACTIVE */}
@@ -343,6 +491,44 @@ export default function MapViewerScreen() {
           </TouchableOpacity>
         </View>
       )}
+
+      {selectedPoint && (
+        <View
+          style={[
+            styles.favPanel,
+            {
+              bottom: (isActiveFlight ? 220 : 20) + keyboardHeight
+            }
+          ]}
+        >
+          <View style={styles.favHeader}>
+            <Text style={styles.favTitle}>Điểm đã chọn</Text>
+            <TouchableOpacity onPress={() => setSelectedPoint(null)}>
+              <Ionicons name="close-circle" size={24} color="#888" />
+            </TouchableOpacity>
+          </View>
+          
+          <Text style={styles.favText}>Tọa độ: {selectedPoint.lat.toFixed(5)}, {selectedPoint.lng.toFixed(5)}</Text>
+          {distanceToSelected !== null && (
+            <Text style={styles.favText}>Cách vị trí hiện tại: <Text style={{fontWeight: 'bold', color: '#0055FF'}}>{distanceToSelected.toFixed(2)} km</Text></Text>
+          )}
+
+          <TextInput
+            style={styles.favInput}
+            placeholder="Nhập tên địa điểm..."
+            value={favouriteName}
+            onChangeText={setFavouriteName}
+          />
+          
+          <TouchableOpacity 
+            style={styles.favBtn} 
+            onPress={handleSaveFavourite} 
+            disabled={isSavingFav}
+          >
+            {isSavingFav ? <ActivityIndicator color="#fff" /> : <Text style={styles.favBtnText}>LƯU YÊU THÍCH</Text>}
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -363,5 +549,24 @@ const styles = StyleSheet.create({
   telemetryValue: { fontSize: 16, fontWeight: 'bold' },
   telemetryLabel: { fontSize: 10, color: '#AAA' },
   endBtn: { backgroundColor: '#FF3B30', paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
-  endBtnText: { color: 'white', fontWeight: 'bold' }
+  endBtnText: { color: 'white', fontWeight: 'bold' },
+  favPanel: { position: 'absolute', left: 20, right: 20, backgroundColor: 'white', borderRadius: 16, padding: 16, elevation: 12, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 10, shadowOffset: { width: 0, height: -4 } },
+  favHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  favTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  favText: { fontSize: 14, color: '#555', marginBottom: 4 },
+  favInput: { borderWidth: 1, borderColor: '#DDD', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginTop: 10, marginBottom: 12, fontSize: 14, backgroundColor: '#F9F9F9' },
+  favBtn: { backgroundColor: '#0055FF', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
+  favBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
+  heartMarker: {
+    backgroundColor: 'white',
+    padding: 4,
+    borderRadius: 20,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 2 },
+    alignItems: 'center',
+    justifyContent: 'center',
+  }
 });

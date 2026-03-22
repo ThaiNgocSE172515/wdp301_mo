@@ -60,7 +60,22 @@ export default function TabLayout() {
         }}
       />
 
-      {/* Tab 3: Profile (file home.tsx) */}
+      {/* Tab 3: Favourites */}
+      <Tabs.Screen
+        name="favourite"
+        options={{
+          title: "Yêu thích",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? "heart" : "heart-outline"}
+              size={24}
+              color={color}
+            />
+          ),
+        }}
+      />
+
+      {/* Tab 4: Profile (file profile.tsx) */}
       <Tabs.Screen
         name="profile"
         options={{
