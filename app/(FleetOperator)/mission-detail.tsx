@@ -8,7 +8,7 @@ import Mapbox from "@rnmapbox/maps";
 import * as turf from '@turf/turf';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 type Mission = {
   "mission": {
@@ -606,7 +606,10 @@ export default function MissionDetailScreen() {
 
       {/* Modal chọn Flight Plan */}
       <Modal visible={modalVisible} transparent={true} animationType="slide">
-        <View style={styles.modalContainer}>
+        <KeyboardAvoidingView 
+          style={styles.modalContainer}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+        >
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Chọn Kế hoạch bay</Text>
@@ -661,7 +664,7 @@ export default function MissionDetailScreen() {
               ListEmptyComponent={<Text style={{ textAlign: 'center', color: '#888', marginTop: 20 }}>Không có kế hoạch bay nào sẵn sàng.</Text>}
             />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* MODAL FULL SCREEN MAP */}
@@ -684,7 +687,10 @@ export default function MissionDetailScreen() {
 
       {/* Modal Edit Mission */}
       <Modal visible={editMissionModalVisible} transparent={true} animationType="slide">
-        <View style={styles.modalContainer}>
+        <KeyboardAvoidingView 
+          style={styles.modalContainer}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+        >
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Cập nhật Nhiệm vụ</Text>
@@ -713,14 +719,14 @@ export default function MissionDetailScreen() {
               </TouchableOpacity>
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9F9F9', paddingTop: 20 },
+  container: { flex: 1, backgroundColor: '#F9F9F9', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 15 },
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
   actionBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F0F0F0', justifyContent: 'center', alignItems: 'center' },
@@ -739,11 +745,11 @@ const styles = StyleSheet.create({
   missionId: { fontSize: 14, color: '#888', marginBottom: 15, fontWeight: '600' },
   description: { fontSize: 15, color: '#555', lineHeight: 22 },
 
-  detailsCard: { backgroundColor: '#fff', marginHorizontal: 20, marginBottom: 15, borderRadius: 16, padding: 15, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
-  planHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  detailsCard: { backgroundColor: '#fff', marginHorizontal: 20, marginBottom: 12, borderRadius: 12, padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+  planHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
   planTitle: { fontSize: 16, fontWeight: '700', color: '#1F222A' },
   planBadge: { fontSize: 12, fontWeight: '600', color: '#E65100', backgroundColor: '#FFF3E0', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  detailRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
+  detailRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
   detailIconBox: { width: 40, height: 40, borderRadius: 10, backgroundColor: '#E3F2FD', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   detailLabel: { fontSize: 13, color: '#888', marginBottom: 2 },
   detailValue: { fontSize: 14, fontWeight: '600', color: '#1F222A', flexShrink: 1 },

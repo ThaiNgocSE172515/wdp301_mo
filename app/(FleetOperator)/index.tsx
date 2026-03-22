@@ -2,34 +2,27 @@ import missionApi from '@/api/missionApi';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
+  Platform,
   SafeAreaView,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
 
-// --- MOCK DATA: Removed, using real data ---
-
 type Mission = {
   _id: string;
   name: string;
   description: string;
-  createdBy: {
-    profile: {
-      fullName: string;
-    };
-    _id: string;
-    email: string;
-    role: "FLEET_OPERATOR" | string;
-  };
-  status: "DRAFT" | "ACTIVE" | "COMPLETED" | string;
-  createdAt: string; // hoặc Date nếu bạn parse
-  updatedAt: string; // hoặc Date
+  createdBy: any;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
   __v: number;
 };
 
@@ -58,7 +51,19 @@ export default function FleetHomeScreen() {
       const fetchAllMission = async () => {
         try {
           const response = await missionApi.getAll();
-          setMissions(response);
+          const arr = Array.isArray(response) ? response : (response.data || []);
+          
+          const enriched = await Promise.all(arr.map(async (m: any) => {
+            if (m.missionPlans) return m; 
+            try {
+              const detail = await missionApi.getMissionById(m._id);
+              return detail; 
+            } catch {
+              return m;
+            }
+          }));
+
+          setMissions(enriched);
         } catch (e) {
           console.log("Lỗi lấy dữ liệu missions: ", e)
         }
@@ -68,9 +73,32 @@ export default function FleetHomeScreen() {
     }, [])
   );
 
-  // console.log(missions);
+  const stats = useMemo(() => {
+    let inProgress = 0;
+    let scheduled = 0;
+    let completed = 0;
 
-  // Hàm xử lý đăng xuất
+    missions.forEach((m: any) => {
+      const plans = m.missionPlans || [];
+      if (plans.length > 0) {
+        plans.forEach((p: any) => {
+          const s = (p.status || '').toUpperCase();
+          if (s === 'IN_PROGRESS') inProgress++;
+          else if (s === 'SCHEDULED') scheduled++;
+          else if (s === 'COMPLETED') completed++;
+        });
+      } else {
+        const missionObj = m.mission || m;
+        const s = (missionObj.status || '').toUpperCase();
+        if (s === 'IN_PROGRESS') inProgress++;
+        else if (s === 'SCHEDULED') scheduled++;
+        else if (s === 'COMPLETED') completed++;
+      }
+    });
+
+    return { inProgress, scheduled, completed };
+  }, [missions]);
+
   const handleLogout = () => {
     Alert.alert(
       "Đăng xuất",
@@ -91,127 +119,141 @@ export default function FleetHomeScreen() {
 
   const getStatusStyle = (status: any) => {
     switch (status) {
-      case 'IN_PROGRESS': return { color: '#2E7D32', bg: '#2E7D3220', text: 'Đang bay' };
-      case 'COMPLETED': return { color: '#1565C0', bg: '#1565C020', text: 'Hoàn thành' };
-      case 'DRAFT': return { color: '#E65100', bg: '#E6510020', text: 'Bản nháp' };
-      case 'SCHEDULED': return { color: '#8E24AA', bg: '#8E24AA20', text: 'Đã lên lịch' };
-      default: return { color: '#757575', bg: '#75757520', text: status || 'Không rõ' };
+      case 'IN_PROGRESS': return { color: '#2E7D32', bg: '#E8F5E9', text: 'Đang hoạt động', border: '#4CAF50' };
+      case 'COMPLETED': return { color: '#1565C0', bg: '#E3F2FD', text: 'Hoàn thành', border: '#2196F3' };
+      case 'DRAFT': return { color: '#E65100', bg: '#FFF3E0', text: 'Bản nháp', border: '#FF9800' };
+      case 'SCHEDULED': return { color: '#8E24AA', bg: '#F3E5F5', text: 'Đã lên lịch', border: '#9C27B0' };
+      default: return { color: '#757575', bg: '#F5F5F5', text: status || 'Không rõ', border: '#9E9E9E' };
     }
   };
 
   const formatDate = (isoString: any) => {
-    if (!isoString) return 'Chưa có ngày';
+    if (!isoString) return 'Chưa rõ';
     const date = new Date(isoString);
-    return date.toLocaleDateString('vi-VN');
+    return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-
-        {/* --- Header --- */}
+        
+        {/* Header Section */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Missions</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
-            <TouchableOpacity onPress={() => router.push('/(FleetOperator)/create-mission')}>
-              <View style={styles.addBtn}>
-                <Ionicons name="add" size={24} color="#fff" />
-              </View>
-            </TouchableOpacity>
-            {/* Nút Avatar kèm chức năng Đăng xuất */}
-            <TouchableOpacity style={styles.avatar} onPress={handleLogout} activeOpacity={0.7}>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity style={styles.avatar} onPress={handleLogout} activeOpacity={0.8}>
               <Text style={styles.avatarText}>{firstLetter}</Text>
             </TouchableOpacity>
+            <View style={styles.greetingBox}>
+              <Text style={styles.greetingText}>Xin chào,</Text>
+              <Text style={styles.userName} numberOfLines={1}>{userName}</Text>
+            </View>
+          </View>
+          <TouchableOpacity 
+            style={styles.addBtn}
+            activeOpacity={0.8}
+            onPress={() => router.push('/(FleetOperator)/create-mission')}
+          >
+            <Ionicons name="add" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Quick Stats Section */}
+        <View style={styles.statsContainer}>
+          <View style={[styles.statCard, { backgroundColor: '#E3F2FD' }]}>
+            <View style={[styles.statIconBox, { backgroundColor: '#BBDEFB' }]}>
+              <Ionicons name="airplane" size={20} color="#1976D2" />
+            </View>
+            <Text style={styles.statValue}>{stats.inProgress}</Text>
+            <Text style={styles.statLabel}>Đang bay</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: '#F3E5F5' }]}>
+            <View style={[styles.statIconBox, { backgroundColor: '#E1BEE7' }]}>
+              <Ionicons name="calendar" size={20} color="#7B1FA2" />
+            </View>
+            <Text style={styles.statValue}>{stats.scheduled}</Text>
+            <Text style={styles.statLabel}>Đã lên lịch</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: '#E8F5E9' }]}>
+            <View style={[styles.statIconBox, { backgroundColor: '#C8E6C9' }]}>
+              <Ionicons name="checkmark-circle" size={20} color="#388E3C" />
+            </View>
+            <Text style={styles.statValue}>{stats.completed}</Text>
+            <Text style={styles.statLabel}>Hoàn thành</Text>
           </View>
         </View>
 
-        <View style={styles.greetingSection}>
-          <Text style={styles.userName}>{userName}</Text>
-          <Text style={styles.welcomeText}>Quản lý kế hoạch bay & Nhiệm vụ</Text>
-        </View>
-
-        {/* --- Phần Nút Truy Cập Nhanh (Thay thế category map) --- */}
+        {/* Action Grid */}
+        <Text style={styles.sectionTitle}>Chức năng chính</Text>
         <View style={styles.actionGrid}>
-          <TouchableOpacity
-            style={styles.mainActionCard}
+          <TouchableOpacity 
+            style={[styles.mainAction, { backgroundColor: '#FFF' }]} 
             activeOpacity={0.8}
             onPress={() => router.push('/(FleetOperator)/mission-list')}
           >
             <View style={[styles.actionIconBox, { backgroundColor: '#E3F2FD' }]}>
-              <Ionicons name="map" size={32} color="#1565C0" />
+              <Ionicons name="albums" size={26} color="#1565C0" />
             </View>
-            <View style={styles.actionTextContainer}>
-              <Text style={styles.actionTitle}>Tất cả Nhiệm vụ</Text>
-              <Text style={styles.actionDesc}>Quản lý và theo dõi toàn bộ nhiệm vụ bay</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color="#1565C0" />
+            <Text style={styles.actionTitle}>Tất cả nhiệm vụ</Text>
           </TouchableOpacity>
+          
+          <View style={styles.gridRow}>
+            <TouchableOpacity 
+              style={[styles.subAction, { backgroundColor: '#FFF', marginLeft: 0 }]} 
+              activeOpacity={0.8}
+              onPress={() => router.push('/my-drones')}
+            >
+              <View style={[styles.actionIconBox, { backgroundColor: '#E8F5E9' }]}>
+                <Ionicons name="hardware-chip" size={26} color="#2E7D32" />
+              </View>
+              <Text style={styles.actionTitle}>Drones</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.subAction, { backgroundColor: '#FFF', marginRight: 0 }]} 
+              activeOpacity={0.8}
+              onPress={() => router.push('/(FleetOperator)/flight-plans')}
+            >
+              <View style={[styles.actionIconBox, { backgroundColor: '#FFF3E0' }]}>
+                <Ionicons name="map" size={26} color="#E65100" />
+              </View>
+              <Text style={styles.actionTitle}>Kế hoạch bay</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 }}>
-          {/* Nút Quản lý Drone */}
-          <TouchableOpacity
-            style={styles.subActionCard}
-            activeOpacity={0.8}
-            onPress={() => router.push('/my-drones')}
-          >
-            <View style={[styles.subActionIconBox, { backgroundColor: '#E8F5E9' }]}>
-              <Ionicons name="hardware-chip" size={28} color="#2E7D32" />
-            </View>
-            <Text style={styles.subActionTitle}>Drones</Text>
-          </TouchableOpacity>
-
-          {/* Nút Quản lý Flight Plan */}
-          <TouchableOpacity
-            style={styles.subActionCard}
-            activeOpacity={0.8}
-            onPress={() => router.push('/(FleetOperator)/flight-plans')}
-          >
-            <View style={[styles.subActionIconBox, { backgroundColor: '#FFF3E0' }]}>
-              <Ionicons name="earth" size={28} color="#E65100" />
-            </View>
-            <Text style={styles.subActionTitle}>Kế Hoạch bay</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* --- Phần Danh sách chuyến bay nhanh --- */}
+        {/* Recent Flights Table */}
         <View style={styles.recentHeader}>
-          <Text style={styles.sectionTitle}>Chuyến bay gần đây</Text>
-          <TouchableOpacity onPress={() => router.push({ pathname: '/(FleetOperator)/mission-list', params: { categoryName: 'Tất cả Kế hoạch' } })}>
+          <Text style={styles.sectionTitle}>Nhiệm vụ gần đây</Text>
+          <TouchableOpacity onPress={() => router.push({ pathname: '/(FleetOperator)/mission-list', params: { categoryName: 'Tất cả Nhiệm vụ' } })}>
             <Text style={styles.seeAllText}>Xem tất cả</Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.flightListContainer}>
-          {missions.slice(0, 5).map((mission, index) => (
-            <View key={mission._id || index}>
-              <TouchableOpacity
-                style={styles.flightCard}
-                activeOpacity={0.8}
-                // Thêm sự kiện chuyển hướng sang màn Detail khi bấm vào chuyến bay
-                onPress={() => router.push({ pathname: '/(FleetOperator)/mission-detail', params: { missionId: mission._id } })}
-              >
-                <View style={styles.flightIconContainer}>
-                  <Ionicons name="paper-plane" size={20} color="#1F222A" />
-                </View>
-                <View style={styles.flightInfo}>
-                  <Text style={styles.flightTitle}>{mission.name}</Text>
-                  <Text style={styles.flightDesc}>{formatDate(mission.updatedAt)}</Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[
-                    styles.flightStatus,
-                    getStatusStyle(mission.status),
-                  ]}>
-                    {mission.status}
-                  </Text>
-                  <Ionicons name="chevron-forward" size={16} color="#A0A0A0" style={{ marginTop: 4 }} />
-                </View>
-              </TouchableOpacity>
 
-              {/* Divider (không hiển thị ở item cuối cùng) */}
-              {index < Math.min(missions.length, 5) - 1 && <View style={styles.divider} />}
-            </View>
-          ))}
+        <View style={styles.recentListContainer}>
+          {missions.length === 0 ? (
+            <Text style={styles.emptyText}>Chưa có nhiệm vụ nào</Text>
+          ) : (
+            missions.slice(0, 5).map((m: any, index) => {
+              const missionData = m.mission || m;
+              const statusStyle = getStatusStyle(missionData.status);
+              return (
+                <TouchableOpacity
+                  key={missionData._id || index}
+                  style={[styles.recentCard, { borderLeftColor: statusStyle.border }]}
+                  activeOpacity={0.8}
+                  onPress={() => router.push({ pathname: '/(FleetOperator)/mission-detail', params: { missionId: missionData._id } })}
+                >
+                  <View style={styles.recentCardContent}>
+                    <Text style={styles.recentTitle} numberOfLines={1}>{missionData.name}</Text>
+                    <Text style={styles.recentDate}><Ionicons name="time-outline" size={12}/> {formatDate(missionData.updatedAt)}</Text>
+                  </View>
+                  <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
+                    <Text style={[styles.statusText, { color: statusStyle.color }]}>{statusStyle.text}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
         </View>
 
       </ScrollView>
@@ -220,104 +262,112 @@ export default function FleetHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9F9F9' },
-  scrollContent: { padding: 20, paddingBottom: 50 },
-
-  // Header & Greeting
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 10 },
-  headerTitle: { fontSize: 25, fontWeight: '600', color: '#1F222A' },
-  avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#000000', justifyContent: 'center', alignItems: 'center' },
-  avatarText: { fontSize: 16, fontWeight: '800', color: '#ffffff', lineHeight: 16 },
-  addBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#0055FF', justifyContent: 'center', alignItems: 'center', shadowColor: '#0055FF', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 5, elevation: 4 },
-  greetingSection: { marginBottom: 25 },
-  userName: { fontSize: 26, fontWeight: 'bold', color: '#1F222A' },
-  welcomeText: { fontSize: 14, color: '#A0A0A0', marginTop: 4 },
-
-  // Quick Action Button
-  actionGrid: { marginBottom: 15 },
-  mainActionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#ffffff',
-    padding: 20,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
+  container: { 
+    flex: 1, 
+    backgroundColor: '#F4F7FA', // Soft gray-blue background 
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 
   },
-  actionIconBox: { width: 60, height: 60, borderRadius: 16, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  actionTextContainer: { flex: 1 },
-  actionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1F222A', marginBottom: 4 },
-  actionDesc: { fontSize: 13, color: '#A0A0A0', lineHeight: 20 },
+  scrollContent: { paddingHorizontal: 20, paddingBottom: 40 },
 
-  subActionCard: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-    padding: 15,
-    borderRadius: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
-    marginHorizontal: 5
+  // Header
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    marginTop: 15, 
+    marginBottom: 25 
   },
-  subActionIconBox: { width: 50, height: 50, borderRadius: 14, justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
-  subActionTitle: { fontSize: 16, fontWeight: 'bold', color: '#1F222A' },
-
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#1F222A' },
-  recentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, marginTop: 10 },
-  seeAllText: { fontSize: 14, fontWeight: '600', color: '#1565C0' },
-
-  // Danh sách chuyến bay nhanh
-  flightListContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 15,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
-  },
-  flightCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  flightIconContainer: {
-    width: 45,
-    height: 45,
-    borderRadius: 12,
-    backgroundColor: '#F5F7FA',
-    justifyContent: 'center',
-    alignItems: 'center',
+  headerLeft: { flexDirection: 'row', alignItems: 'center' },
+  avatar: { 
+    width: 50, height: 50, 
+    borderRadius: 25, 
+    backgroundColor: '#1E293B', 
+    justifyContent: 'center', alignItems: 'center',
     marginRight: 15,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 5, elevation: 4 
   },
-  flightInfo: {
-    flex: 1,
+  avatarText: { fontSize: 20, fontWeight: 'bold', color: '#FFF' },
+  greetingBox: { justifyContent: 'center' },
+  greetingText: { fontSize: 13, color: '#64748B', marginBottom: 2 },
+  userName: { fontSize: 20, fontWeight: 'bold', color: '#0F172A', maxWidth: 200 },
+  addBtn: { 
+    width: 44, height: 44, 
+    borderRadius: 22, 
+    backgroundColor: '#3B82F6', 
+    justifyContent: 'center', alignItems: 'center', 
+    shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 5 
   },
-  flightTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#1F222A',
-    marginBottom: 4,
+
+  // Stats
+  statsContainer: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    marginBottom: 30 
   },
-  flightDesc: {
-    fontSize: 13,
-    color: '#888',
+  statCard: { 
+    flex: 1, 
+    padding: 15, 
+    borderRadius: 20, 
+    marginHorizontal: 5,
+    alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 
   },
-  flightStatus: {
-    fontSize: 13,
-    fontWeight: '700',
+  statIconBox: { 
+    width: 40, height: 40, 
+    borderRadius: 20, 
+    justifyContent: 'center', alignItems: 'center', 
+    marginBottom: 10 
   },
-  divider: {
-    height: 1,
-    backgroundColor: '#F0F0F0',
-    marginVertical: 5,
-    marginLeft: 60,
+  statValue: { fontSize: 20, fontWeight: 'bold', color: '#0F172A', marginBottom: 2 },
+  statLabel: { fontSize: 12, color: '#475569', fontWeight: '500' },
+
+  // Sections
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#0F172A', marginBottom: 15 },
+  
+  // Action Grid
+  actionGrid: { marginBottom: 30 },
+  mainAction: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    padding: 20, 
+    borderRadius: 20, 
+    marginBottom: 15,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3
   },
+  gridRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 15 },
+  subAction: { 
+    flex: 1, 
+    padding: 20, 
+    borderRadius: 20, 
+    shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3
+  },
+  actionIconBox: { 
+    width: 48, height: 48, 
+    borderRadius: 16, 
+    justifyContent: 'center', alignItems: 'center', 
+    marginRight: 15, marginBottom: 10
+  },
+  actionTitle: { fontSize: 15, fontWeight: '600', color: '#1E293B', flex: 1 },
+
+  // Recent Missions
+  recentHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 },
+  seeAllText: { fontSize: 14, fontWeight: '600', color: '#3B82F6' },
+  recentListContainer: { paddingBottom: 20 },
+  emptyText: { textAlign: 'center', color: '#94A3B8', fontStyle: 'italic', marginTop: 10 },
+  recentCard: { 
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFF', 
+    padding: 16, 
+    marginBottom: 12, 
+    borderRadius: 16,
+    borderLeftWidth: 5,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2
+  },
+  recentCardContent: { flex: 1, marginRight: 10 },
+  recentTitle: { fontSize: 16, fontWeight: '700', color: '#0F172A', marginBottom: 4 },
+  recentDate: { fontSize: 13, color: '#64748B' },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 },
+  statusText: { fontSize: 12, fontWeight: '700' }
 });
