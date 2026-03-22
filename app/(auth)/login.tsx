@@ -25,18 +25,19 @@ export default function LoginScreen() {
       console.log('Login Result:', resData);
 
       if (resData && resData.token) {
-          await AsyncStorage.setItem('ACCESS_TOKEN', resData.token);
-          await AsyncStorage.setItem('USER_PROFILE', JSON.stringify(resData.user));
-          console.log("Đã lưu Token và User Profile thành công!");
-          console.log(resData.user.role);
-          if (resData.user.role === 'FLEET_OPERATOR') {
-            
-            router.replace('/(FleetOperator)'); 
-          } else {
-            router.replace('/(tabs)');
-          }
+        await AsyncStorage.setItem('ACCESS_TOKEN', resData.token);
+        await AsyncStorage.setItem('USER_PROFILE', JSON.stringify(resData.user));
+        await AsyncStorage.setItem('USER_PROFILE_ID', JSON.stringify(resData.user["_id"]));
+        console.log("Đã lưu Token và User Profile thành công!");
+        console.log(resData.user.role);
+        if (resData.user.role === 'FLEET_OPERATOR') {
+
+          router.replace('/(FleetOperator)');
+        } else {
+          router.replace('/(tabs)');
+        }
       } else {
-          Alert.alert("Lỗi", "Không tìm thấy token trong phản hồi server.");
+        Alert.alert("Lỗi", "Không tìm thấy token trong phản hồi server.");
       }
 
     } catch (error: any) {
@@ -49,8 +50,8 @@ export default function LoginScreen() {
   };
 
   return (
-    <ImageBackground 
-      source={require('../../assets/images/bg.png')} 
+    <ImageBackground
+      source={require('../../assets/images/bg.png')}
       style={styles.container}
     >
       <SafeAreaView style={styles.safeArea}>
@@ -64,15 +65,15 @@ export default function LoginScreen() {
             onChangeText={setEmail}
             keyboardType="email-address"
             autoCapitalize="none"
-            containerStyle={{ borderWidth: 0 }} 
+            containerStyle={{ borderWidth: 0 }}
           />
           {/* Password */}
           <CustomInput
             placeholder="Enter your password"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry={!showPassword} 
-            rightIcon={showPassword ? "eye" : "eye-off"} 
+            secureTextEntry={!showPassword}
+            rightIcon={showPassword ? "eye" : "eye-off"}
             onRightIconPress={() => setShowPassword(!showPassword)}
             containerStyle={{ borderWidth: 0 }}
           />
@@ -82,12 +83,12 @@ export default function LoginScreen() {
           </TouchableOpacity>
 
           {/* Button Login */}
-          <TouchableOpacity 
-            style={styles.mainBtn} 
+          <TouchableOpacity
+            style={styles.mainBtn}
             onPress={handleLogin}
             disabled={loading}
           >
-             {loading ? (
+            {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={styles.mainBtnText}>Login</Text>

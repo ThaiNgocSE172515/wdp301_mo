@@ -51,6 +51,8 @@ export default function ProfileTab() {
     ]);
   };
 
+
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -67,16 +69,29 @@ export default function ProfileTab() {
       </View>
 
       <View style={styles.menuContainer}>
-        <TouchableOpacity 
-          style={styles.menuItem} 
+
+        <TouchableOpacity
+          style={styles.menuItem}
           onPress={() => router.push('/edit-profile')}
         >
-          
+
           <View style={styles.menuLeft}>
             <Ionicons name="person-outline" size={24} color="#1F222A" />
             <Text style={styles.menuText}>Thông tin cá nhân</Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color="#888" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push("/register-fleet-operator")}
+        >
+          <View style={styles.menuLeft}>
+            <Ionicons name='infinite-outline' size={24} color="#1F222A" />
+            <Text style={styles.menuText}>Đăng ký đội vận hành drone</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#888" />
+
         </TouchableOpacity>
       </View>
 
@@ -93,9 +108,9 @@ const styles = StyleSheet.create({
   avatarPlaceholder: {
     width: 100, height: 100, borderRadius: 50,
     backgroundColor: '#E0E0E0', marginBottom: 15,
-    justifyContent: 'center', alignItems: 'center', overflow: 'hidden' 
+    justifyContent: 'center', alignItems: 'center', overflow: 'hidden'
   },
-  avatarImg: { width: '100%', height: '100%', resizeMode: 'cover' }, 
+  avatarImg: { width: '100%', height: '100%', resizeMode: 'cover' },
   avatarText: { fontSize: 36, fontWeight: '800', color: '#1F222A' },
   name: { fontSize: 22, fontWeight: 'bold', color: '#1F222A' },
   email: { fontSize: 14, color: '#888' },
@@ -108,4 +123,5 @@ const styles = StyleSheet.create({
   menuText: { fontSize: 16, fontWeight: '500', marginLeft: 15, color: '#1F222A' },
   logoutBtn: { backgroundColor: '#F5F5F5', paddingVertical: 15, borderRadius: 15, alignItems: 'center' },
   logoutText: { color: '#FF4D4D', fontSize: 16, fontWeight: '600' },
+
 });
