@@ -133,7 +133,6 @@ export default function MyDronesScreen() {
         const payload = {
           model: newdata.model,
           maxAltitude: v.maxAltNum,
-          status: 'IDLE',
         };
         await droneApi.update(editingId, payload);
         Alert.alert('Thành công', 'Cập nhật Drone thành công!');
@@ -144,6 +143,13 @@ export default function MyDronesScreen() {
           model: newdata.model,
           ownerType: newdata.ownerType,
           maxAltitude: v.maxAltNum,
+          route: {
+            type: "LineString",
+            coordinates: [
+              [0, 0], 
+             [0.0001, 0.0001]
+            ]
+          }
         };
         await droneApi.CreateDrone(payload as any);
         Alert.alert('Thành công', 'Đã thêm Drone mới!');

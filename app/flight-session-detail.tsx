@@ -34,7 +34,16 @@ export default function FlightSessionDetailScreen() {
     try {
       setLoading(true);
       const response = await flightSessionApi.getSessionDetail(id as string);
-      setDetail(response.data || response); 
+      // 1. Hứng dữ liệu thật vào một biến
+      const detailData = response.data || response; 
+      
+      // 2. Log biến đó ra (dùng JSON.stringify để in ra object đẹp và dễ nhìn hơn)
+      console.log("=== DATA TRẢ VỀ TỪ API ===");
+      console.log(JSON.stringify(detailData, null, 2));
+      console.log("==========================");
+
+      // 3. Cập nhật vào state để UI render
+      setDetail(detailData);
     } catch (error) {
       console.error('Lỗi lấy chi tiết phiên bay:', error);
     } finally {

@@ -1,6 +1,5 @@
 import axiosClient from './axiosClient';
 
-
 export interface OwnerInfo {
   _id: string;
   email: string;
@@ -10,17 +9,24 @@ export interface OwnerInfo {
   };
 }
 
+// Cấu trúc Route cho GeoJSON
+export interface GeoRoute {
+  type: "LineString";
+  coordinates: number[][]; // Mảng các cặp [kinh độ, vĩ độ]
+}
+
 export interface Drone {
- _id: string;
- droneId: string;
- serialNumber: string;
- model: string;
- ownerType: string;
- maxAltitude: number;
- status: string;
- createdAt: Date;
- updatedAt: Date;
- owner?: OwnerInfo;
+  _id: string;
+  droneId: string;
+  serialNumber: string;
+  model: string;
+  ownerType: string;
+  maxAltitude: number;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+  owner?: OwnerInfo;
+  route?: GeoRoute; // Thêm vào đây để lấy dữ liệu về dùng
 }
 
 export interface CreateDronePayload {
@@ -28,6 +34,8 @@ export interface CreateDronePayload {
   model: string;
   ownerType: string;
   maxAltitude: number;
+  // Cho phép truyền route hoặc không, nhưng ta sẽ xử lý ở hàm gọi API
+  route?: GeoRoute; 
 }
 
 export interface UpdateDronePayload {
@@ -36,22 +44,33 @@ export interface UpdateDronePayload {
   status?: string;
 }
 
-const droneApi ={
-   getAll: () => {
+const droneApi = {
+  getAll: () => {
     return axiosClient.get<Drone[]>('/drones');
-   },
-   CreateDrone: (data: CreateDronePayload) => {
-      return axiosClient.post('/drones', data);
-   },
+  },
+
+  CreateDrone: (data: CreateDronePayload) => {
+    const finalData = {
+      ...data,
+      route: data.route || {
+        type: "LineString",
+        coordinates: [] 
+      }
+    };
+    return axiosClient.post('/drones', finalData);
+  },
+
   delete: (id: string) => {
     return axiosClient.delete(`/drones/${id}`);
   },
+
   getDetail: (id: string) => {
     return axiosClient.get<Drone>(`/drones/${id}`);
   },
+
   update: (id: string, data: UpdateDronePayload) => {
-      return axiosClient.put<Drone>(`/drones/${id}`, data);
-   }
+    return axiosClient.put<Drone>(`/drones/${id}`, data);
+  }
 }
 
 export default droneApi;
