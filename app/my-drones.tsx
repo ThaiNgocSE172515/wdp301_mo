@@ -21,30 +21,28 @@ import { useRouter } from 'expo-router';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { useMyDrones } from './../hooks/Drone/useMyDrones';
+import { useDeleteDrone } from './../hooks/Drone/useDeleteDrone';
+import { useDroneForm } from './../hooks/Drone/useDroneForm';
+import { useFetchDrones } from './../hooks/Drone/useFetchDrones';
+
 const droneImage = "https://cdn-icons-png.flaticon.com/512/1830/1830867.png";
 
 export default function MyDronesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
+  // 1. Hook lấy dữ liệu
+  const { listData, loading, fetchDrones, removeDroneFromState } = useFetchDrones();
+
+  // 2. Hook Xóa (truyền hàm removeDroneFromState vào để khi xóa thành công nó tự cập nhật UI)
+  const { confirmDelete } = useDeleteDrone(removeDroneFromState);
+
+  // 3. Hook Form (Tạo/Sửa) (truyền hàm fetchDrones vào để khi lưu thành công nó tự load lại mảng listData)
   const {
-    listData,
-    loading,
-    showmodal,
-    setshowmodal,
-    submit,
-    newdata,
-    setnewdata,
-    showModelPicker,
-    setShowModelPicker,
-    isEditing,
-    pickerData,
-    openAddModal,
-    openEditModal,
-    saveDrone,
-    confirmDelete,
-  } = useMyDrones();
+    showmodal, setshowmodal, submit, newdata, setnewdata,
+    showModelPicker, setShowModelPicker, isEditing, pickerData,
+    openAddModal, openEditModal, saveDrone
+  } = useDroneForm(fetchDrones);
 
   const renderRightActions = (progress: any, dragX: any, item: Drone) => {
     const scale = dragX.interpolate({
@@ -285,6 +283,7 @@ export default function MyDronesScreen() {
   );
 }
 
+// Giữ nguyên toàn bộ phần StyleSheet của bạn ở đây...
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F9F9F9' },
   header: {
