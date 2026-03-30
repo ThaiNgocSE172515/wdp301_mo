@@ -1,7 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Animated,
   FlatList,
   Image,
@@ -16,172 +15,37 @@ import {
   View,
 } from 'react-native';
 
-import droneApi, { Drone } from '@/api/droneApi';
+import { Drone } from '@/api/droneApi';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const DRONE_CATALOG = [
-  { model: 'DJI Mini 4 Pro', maxAltitude: 4000 },
-  { model: 'DJI Mini 3', maxAltitude: 4000 },
-  { model: 'DJI Air 3', maxAltitude: 6000 },
-  { model: 'DJI Air 2S', maxAltitude: 5000 },
-  { model: 'DJI Mavic 3 Pro', maxAltitude: 6000 },
-  { model: 'DJI Avata 2', maxAltitude: 5000 },
-  { model: 'Autel EVO Lite+', maxAltitude: 4000 },
-  { model: 'Autel EVO Nano+', maxAltitude: 4000 },
-  { model: 'Parrot ANAFI Ai', maxAltitude: 5000 },
-] as const;
-const droneImage = "https://cdn-icons-png.flaticon.com/512/1830/1830867.png";
-type FormState = {
-  serialNumber: string;
-  model: string;
-  ownerType: 'INDIVIDUAL';
-  maxAltitude: string; // nhập từ TextInput
-};
+import { useMyDrones } from './../hooks/Drone/useMyDrones';
 
-const DEFAULT_FORM: FormState = {
-  serialNumber: '',
-  model: '',
-  ownerType: 'INDIVIDUAL',
-  maxAltitude: '',
-};
+const droneImage = "https://cdn-icons-png.flaticon.com/512/1830/1830867.png";
 
 export default function MyDronesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const [listData, setListData] = useState<Drone[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const [showmodal, setshowmodal] = useState(false);
-  const [submit, setsubmit] = useState(false);
-
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [newdata, setnewdata] = useState<FormState>(DEFAULT_FORM);
-
-  // Model picker
-  const [showModelPicker, setShowModelPicker] = useState(false);
-
-  const isEditing = !!editingId;
-
-  const resetForm = () => setnewdata(DEFAULT_FORM);
-
-  const setFormFromDrone = (item: Drone) => {
-    setnewdata({
-      serialNumber: item.serialNumber ?? '',
-      model: item.model ?? '',
-      ownerType: (item.ownerType as any) ?? 'INDIVIDUAL',
-      maxAltitude: item.maxAltitude?.toString?.() ?? String(item.maxAltitude ?? ''),
-    });
-  };
-
-  const getallDrone = async () => {
-    try {
-      setLoading(true);
-      const response = await droneApi.getAll();
-      setListData(response.data);
-    } catch (error) {
-      console.error('Lỗi gọi API:', error);
-      Alert.alert('Lỗi', 'Không thể tải danh sách drone.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    getallDrone();
-  }, []);
-
-  const openAddModal = () => {
-    setEditingId(null);
-    resetForm();
-    setshowmodal(true);
-  };
-
-  const openEditModal = (item: Drone) => {
-    setEditingId(item._id);
-    setFormFromDrone(item);
-    setshowmodal(true);
-  };
-
-  const validateForm = () => {
-    if (!newdata.maxAltitude || !newdata.model || !newdata.serialNumber) {
-      Alert.alert('Thông báo', 'Vui lòng nhập đầy đủ thông tin!');
-      return null;
-    }
-
-    const maxAltNum = Number(newdata.maxAltitude);
-    if (Number.isNaN(maxAltNum) || maxAltNum <= 0) {
-      Alert.alert('Thông báo', 'Max Altitude phải là số hợp lệ!');
-      return null;
-    }
-
-    return { maxAltNum };
-  };
-
-  const saveDrone = async () => {
-    const v = validateForm();
-    if (!v) return;
-
-    try {
-      setsubmit(true);
-
-      if (editingId) {
-        // UPDATE
-        const payload = {
-          model: newdata.model,
-          maxAltitude: v.maxAltNum,
-        };
-        await droneApi.update(editingId, payload);
-        Alert.alert('Thành công', 'Cập nhật Drone thành công!');
-      } else {
-        // CREATE (không gửi droneId)
-        const payload = {
-          serialNumber: newdata.serialNumber,
-          model: newdata.model,
-          ownerType: newdata.ownerType,
-          maxAltitude: v.maxAltNum,
-          route: {
-            type: "LineString",
-            coordinates: [
-              [0, 0], 
-             [0.0001, 0.0001]
-            ]
-          }
-        };
-        await droneApi.CreateDrone(payload as any);
-        Alert.alert('Thành công', 'Đã thêm Drone mới!');
-      }
-
-      setshowmodal(false);
-      getallDrone();
-    } catch (error) {
-      console.error(error);
-      Alert.alert('Lỗi', editingId ? 'Không thể cập nhật.' : 'Không thể thêm mới.');
-    } finally {
-      setsubmit(false);
-    }
-  };
-
-  const confirmDelete = (id: string) => {
-    Alert.alert('Xác nhận xóa', 'Bạn có chắc chắn muốn xóa Drone này không?', [
-      { text: 'Hủy', style: 'cancel' },
-      {
-        text: 'Xóa',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await droneApi.delete(id);
-            setListData((prev) => prev.filter((item) => item._id !== id));
-          } catch (error) {
-            Alert.alert('Lỗi', 'Không thể xóa Drone');
-          }
-        },
-      },
-    ]);
-  };
+  const {
+    listData,
+    loading,
+    showmodal,
+    setshowmodal,
+    submit,
+    newdata,
+    setnewdata,
+    showModelPicker,
+    setShowModelPicker,
+    isEditing,
+    pickerData,
+    openAddModal,
+    openEditModal,
+    saveDrone,
+    confirmDelete,
+  } = useMyDrones();
 
   const renderRightActions = (progress: any, dragX: any, item: Drone) => {
     const scale = dragX.interpolate({
@@ -233,10 +97,10 @@ export default function MyDronesScreen() {
         >
           <View style={styles.itemImageContainer}>
             <Image
-                       source={{ uri: droneImage }}
-                       style={styles.droneImg}
-                       resizeMode="contain"
-                     />
+              source={{ uri: droneImage }}
+              style={styles.droneImg}
+              resizeMode="contain"
+            />
           </View>
 
           <View style={styles.itemInfo}>
@@ -257,9 +121,6 @@ export default function MyDronesScreen() {
       </Swipeable>
     </View>
   );
-
-  // Picker list data (memo cho nhẹ)
-  const pickerData = useMemo(() => DRONE_CATALOG, []);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -596,7 +457,7 @@ const styles = StyleSheet.create({
     color: '#777',
   },
   droneImg: {
-  width: 40,
-  height: 40,
-},
+    width: 40,
+    height: 40,
+  },
 });
