@@ -9,10 +9,9 @@ export interface OwnerInfo {
   };
 }
 
-// Cấu trúc Route cho GeoJSON
 export interface GeoRoute {
   type: "LineString";
-  coordinates: number[][]; // Mảng các cặp [kinh độ, vĩ độ]
+  coordinates: number[][];
 }
 
 export interface Drone {
@@ -26,7 +25,7 @@ export interface Drone {
   createdAt: Date;
   updatedAt: Date;
   owner?: OwnerInfo;
-  route?: GeoRoute; // Thêm vào đây để lấy dữ liệu về dùng
+  route?: GeoRoute;
 }
 
 export interface CreateDronePayload {
@@ -34,7 +33,6 @@ export interface CreateDronePayload {
   model: string;
   ownerType: string;
   maxAltitude: number;
-  // Cho phép truyền route hoặc không, nhưng ta sẽ xử lý ở hàm gọi API
   route?: GeoRoute; 
 }
 

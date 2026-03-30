@@ -6,12 +6,10 @@ export interface RegisterPayload {
   fullName?: string; 
   role?: string;
 }
-
 export interface LoginPayload {
   email: string;
   password: string;
 }
-
 export interface UserData {
   _id: string;
   email: string;
@@ -22,7 +20,6 @@ export interface UserData {
     phone?: string;  
   };
 }
-
 export interface UpdateInfo {
   fullName?: string;
   phone?: string;

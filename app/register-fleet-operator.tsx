@@ -13,7 +13,6 @@ type PackType = {
     description: String,
     status: "Active" | "Inactive" | String
 }
-
 const RegisterFleetOperator = () => {
     const router = useRouter();
     const [qrUrl, setQrUrl] = useState('');

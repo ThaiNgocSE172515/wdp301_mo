@@ -1,6 +1,5 @@
 import axiosClient from './axiosClient';
 
-// --- ĐỊNH NGHĨA KIỂU DỮ LIỆU ---
 export interface Pilot {
   _id: string;
   email: string;
@@ -45,7 +44,6 @@ export interface FlightSessionResponse {
   };
 }
 
-// --- API IMPLEMENTATION ---
 export const flightSessionApi = {
   // 1. POST: Bắt đầu bay tự do
   startFreeFlight: async (droneId: string) => {

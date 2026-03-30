@@ -22,7 +22,6 @@ import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler'
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useMyDrones } from './../hooks/Drone/useMyDrones';
-
 const droneImage = "https://cdn-icons-png.flaticon.com/512/1830/1830867.png";
 
 export default function MyDronesScreen() {
