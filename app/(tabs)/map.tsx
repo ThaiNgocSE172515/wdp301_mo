@@ -14,8 +14,8 @@ import { io, Socket } from "socket.io-client";
 // const SIMULATOR_URL = "http://10.139.229.139:3001";
 // const REAL_BE_URL = "http://10.139.229.139:3000";
 
-const SIMULATOR_URL = "http://192.168.1.10:3001";
-const REAL_BE_URL = "http://192.168.1.10:3000";
+const SIMULATOR_URL = "http://192.168.3.192:3001";
+const REAL_BE_URL = "http://192.168.3.192:3000";
 
 type DroneState = {
   droneId: string;
@@ -36,10 +36,10 @@ export default function MapViewerScreen() {
   const connectedMongoId = (params.connectedDroneId || params.droneId) as string;
 
   // CỜ QUAN TRỌNG: Kiểm tra xem có đang trong chuyến bay không
-  // Nếu có sessionId thực sự (khác rỗng, khác undefined) thì mới là Active Flight
   const isActiveFlight = !!sessionId && sessionId !== '';
 
   const [drones, setDrones] = useState<Record<string, DroneState>>({});
+  const [battery, setBattery] = useState(100);
   const [isEnding, setIsEnding] = useState(false);
 
   const [simulatorDroneId, setSimulatorDroneId] = useState<string>('');
@@ -48,21 +48,29 @@ export default function MapViewerScreen() {
   // State quản lý Zones và cảnh báo
   const [zones, setZones] = useState<any[]>([]);
   const zonesRef = useRef<any[]>([]);
-  const [warningZone, setWarningZone] = useState<{ name: string, type: string } | null>(null);
+  const [warningZone, setWarningZone] = useState<{ name: string, type: string, status: 'inside' | 'near' } | null>(null);
 
   // Lưu 2 Refs để dọn dẹp khi thoát màn hình
   const simSocketRef = useRef<Socket | null>(null);
   const beSocketRef = useRef<Socket | null>(null);
 
   // States for map selection and favourite
-  const [selectedPoint, setSelectedPoint] = useState<{lat: number, lng: number} | null>(null);
+  const [selectedPoint, setSelectedPoint] = useState<{ lat: number, lng: number } | null>(null);
   const [distanceToSelected, setDistanceToSelected] = useState<number | null>(null);
   const [favouriteName, setFavouriteName] = useState<string>('');
   const [isSavingFav, setIsSavingFav] = useState(false);
   const [userId, setUserId] = useState<string>('');
   const [favouritesList, setFavouritesList] = useState<any[]>([]);
   const [mapReady, setMapReady] = useState(false);
+  const userLocationRef = useRef<{ lat: number; lng: number } | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  const mapRef = useRef<Mapbox.MapView>(null);
+  const [buildingWarning, setBuildingWarning] = useState<{ isColliding: boolean, height: number, name: string } | null>(null);
+  const lastCollisionCheck = useRef<number>(0);
+
+  const [isPanelExpanded, setIsPanelExpanded] = useState(true);
+  const [isWarningExpanded, setIsWarningExpanded] = useState(true);
 
   const favLat = params.favLat as string;
   const favLng = params.favLng as string;
@@ -73,7 +81,6 @@ export default function MapViewerScreen() {
       if (id) {
         const parsedId = JSON.parse(id);
         setUserId(parsedId);
-        
         try {
           const res = await FavouriteApi.get(parsedId);
           const list = res?.data?.data || res?.data || res || [];
@@ -86,7 +93,6 @@ export default function MapViewerScreen() {
     fetchUser();
   }, []);
 
-  // Track keyboard height for absolute panel
   useEffect(() => {
     const showSub = Keyboard.addListener('keyboardDidShow', (e) => {
       setKeyboardHeight(e.endCoordinates.height);
@@ -100,13 +106,10 @@ export default function MapViewerScreen() {
     };
   }, []);
 
-  // Di chuyển camera khi đi từ tab Favourite sang và map đã sẵn sàng
   useEffect(() => {
     if (favLat && favLng && mapReady && cameraRef.current) {
       const lat = parseFloat(favLat);
       const lng = parseFloat(favLng);
-
-      // Chỉ bay đến điểm, KHÔNG mở form nhập (điểm đã là yêu thích rồi)
       cameraRef.current.setCamera({
         centerCoordinate: [lng, lat],
         zoomLevel: 18,
@@ -124,12 +127,12 @@ export default function MapViewerScreen() {
         if (myDrone) {
           setSimulatorDroneId(myDrone.droneId);
           setDroneModel(myDrone.model);
-
-          console.log("\n=======================================================");
-          console.log(`👉 DRONE ID:    ${myDrone.droneId}`);
-          console.log(`👉 SESSION ID:  ${sessionId}`);
-          console.log("=======================================================\n");
         }
+
+        console.log("\n=======================================================");
+        console.log(`👉 DRONE ID:    ${myDrone?.droneId}`);
+        console.log(`👉 SESSION ID:  ${sessionId}`);
+        console.log("=======================================================\n");
 
         const zRes = await zoneApi.getAll({ limit: 100 });
         const zoneList = zRes.data?.data || zRes.data || [];
@@ -149,6 +152,13 @@ export default function MapViewerScreen() {
   }, [connectedMongoId, sessionId]);
 
   useEffect(() => {
+    // Tự động bung bảng cảnh báo nếu phát hiện vật cản mới
+    if (buildingWarning) {
+      setIsWarningExpanded(true);
+    }
+  }, [buildingWarning?.name]);
+
+  useEffect(() => {
     let simSocket: Socket;
     let beSocket: Socket;
 
@@ -158,10 +168,8 @@ export default function MapViewerScreen() {
       simSocket = io(SIMULATOR_URL, { transports: ["websocket"] });
       simSocketRef.current = simSocket;
 
-      // 💡 THÊM ĐOẠN NÀY: Báo cho Giả lập biết đang bay chuyến nào
       simSocket.on("connect", () => {
         if (sessionId && simulatorDroneId) {
-          console.log(`🚀 Báo cho Giả lập: Khởi tạo chuyến bay ${sessionId}`);
           simSocket.emit("drone:init", {
             droneId: simulatorDroneId,
             sessionId: sessionId,
@@ -170,11 +178,16 @@ export default function MapViewerScreen() {
         }
       });
 
-      simSocket.on("drone:position", (data) => {
+      simSocket.on("drone:battery", (data) => {
+        return setBattery(data);
+      })
+
+      simSocket.on("drone:position", async (data) => {
         if (!data) return;
         const dId = data.droneId || simulatorDroneId;
         const droneLng = parseFloat(data.lng);
         const droneLat = parseFloat(data.lat);
+        const droneAlt = parseFloat(data.altitude ?? 0);
 
         setDrones(prev => {
           const prevDrone = prev[dId];
@@ -194,18 +207,24 @@ export default function MapViewerScreen() {
 
         if (dId === simulatorDroneId) {
           const dronePoint = turf.point([droneLng, droneLat]);
-          let currentWarning = null;
+          let currentWarning: { name: string, type: string, status: 'inside' | 'near' } | null = null;
 
           for (const zone of zonesRef.current) {
             try {
               if (zone.geometry && zone.geometry.coordinates) {
-                // Dùng turf.polygon thay vì feature để tránh lỗi ép kiểu
                 const polygon = turf.polygon(zone.geometry.coordinates);
-                const isInside = turf.booleanPointInPolygon(dronePoint, polygon as any);
 
+                const isInside = turf.booleanPointInPolygon(dronePoint, polygon as any);
                 if (isInside) {
-                  currentWarning = { name: zone.name, type: zone.type };
-                  break; // Báo động vùng đầu tiên chạm phải
+                  currentWarning = { name: zone.name, type: zone.type, status: 'inside' };
+                  break;
+                }
+
+                const bufferedPolygon = turf.buffer(polygon, 0.5, { units: 'kilometers' });
+                if (bufferedPolygon && turf.booleanPointInPolygon(dronePoint, bufferedPolygon)) {
+                  if (!currentWarning) {
+                    currentWarning = { name: zone.name, type: zone.type, status: 'near' };
+                  }
                 }
               }
             } catch (err) {
@@ -214,6 +233,63 @@ export default function MapViewerScreen() {
           }
 
           setWarningZone(currentWarning);
+
+          // --- 2. CHECK VA CHẠM TÒA NHÀ TRONG PHẠM VI 50M (DÙNG TỌA ĐỘ PIXEL) ---
+          if (mapReady && mapRef.current) {
+            const now = Date.now();
+            if (now - lastCollisionCheck.current > 1000) {
+              lastCollisionCheck.current = now;
+
+              try {
+                // Lấy tọa độ PIXEL của Drone
+                const point = await mapRef.current.getPointInView([droneLng, droneLat]);
+
+                // Mở rộng ra xung quanh Drone 60 pixel (~ tương đương bán kính an toàn)
+                const DETECTION_RADIUS_PIXELS = 60;
+
+                const top = point[1] - DETECTION_RADIUS_PIXELS;
+                const right = point[0] + DETECTION_RADIUS_PIXELS;
+                const bottom = point[1] + DETECTION_RADIUS_PIXELS;
+                const left = point[0] - DETECTION_RADIUS_PIXELS;
+
+                const features = await mapRef.current.queryRenderedFeaturesInRect(
+                  [top, right, bottom, left],
+                  undefined,
+                  ['3d-buildings']
+                );
+
+                if (features && features.features && features.features.length > 0) {
+                  const tallBuildings = features.features
+                    .map(f => {
+                      const h = f.properties?.height || f.properties?.render_height || 15;
+                      return {
+                        height: h,
+                        name: f.properties?.name || "Vật cản/Tòa nhà"
+                      };
+                    })
+                    .filter(b => b.height >= droneAlt);
+
+                  if (tallBuildings.length > 0) {
+                    const dangerousBuilding = tallBuildings.reduce((prev, current) =>
+                      (prev.height > current.height) ? prev : current
+                    );
+
+                    setBuildingWarning({
+                      isColliding: true,
+                      height: dangerousBuilding.height,
+                      name: dangerousBuilding.name
+                    });
+                  } else {
+                    setBuildingWarning(null);
+                  }
+                } else {
+                  setBuildingWarning(null);
+                }
+              } catch (error) {
+                console.log("Lỗi kiểm tra va chạm:", error);
+              }
+            }
+          }
 
           // Cập nhật camera đi theo drone
           if (cameraRef.current) {
@@ -247,30 +323,39 @@ export default function MapViewerScreen() {
       if (simSocketRef.current) simSocketRef.current.disconnect();
       if (beSocketRef.current) beSocketRef.current.disconnect();
     };
-  }, [sessionId, simulatorDroneId]);
+  }, [sessionId, simulatorDroneId, mapReady]);
 
-  const handleEndFlight = async () => {
+  const handleEndFlight = async (altitude: number) => {
     if (!sessionId) return;
     Alert.alert("Xác nhận", "Kết thúc chuyến bay này?", [
       { text: "Hủy", style: "cancel" },
       {
         text: "Kết thúc", style: "destructive", onPress: async () => {
-          try {
-            setIsEnding(true);
-            await flightSessionApi.endSession(sessionId);
+          if (altitude != 0) {
+            Alert.alert("Cảnh báo", "Drone còn đang bay chưa thể kết thúc chuyến bay", [
+              {
+                text: "Xác nhận", style: "destructive", onPress: () => {
+                  return;
+                }
+              }
+            ])
+          } else {
+            try {
+              setIsEnding(true);
+              await flightSessionApi.endSession(sessionId);
 
-            // 💡 FIX LỖI CACHE CỦA TABBAR: Xóa sạch params sau khi kết thúc
-            router.setParams({
-              sessionId: '',
-              connectedDroneId: '',
-              droneId: ''
-            });
+              router.setParams({
+                sessionId: '',
+                connectedDroneId: '',
+                droneId: ''
+              });
 
-          } catch (error) {
-            console.log("Lỗi End Session:", error);
-          } finally {
-            setIsEnding(false);
-            router.back();
+            } catch (error) {
+              console.log("Lỗi End Session:", error);
+            } finally {
+              setIsEnding(false);
+              router.back();
+            }
           }
         }
       }
@@ -280,13 +365,14 @@ export default function MapViewerScreen() {
   const currentDrone = drones[simulatorDroneId] || { speed: 0, altitude: 0, heading: 0, batteryLevel: 100, lng: 106.81809, lat: 10.82615 };
 
   const handleMapPress = (e: any) => {
+    if (isActiveFlight) return;
     if (!e || !e.geometry || !e.geometry.coordinates) return;
     const [lng, lat] = e.geometry.coordinates;
     setSelectedPoint({ lat, lng });
 
     const fromLng = currentDrone?.lng || 106.81809;
     const fromLat = currentDrone?.lat || 10.82615;
-    
+
     if (fromLng && fromLat) {
       const distance = turf.distance(
         turf.point([fromLng, fromLat]),
@@ -306,7 +392,7 @@ export default function MapViewerScreen() {
       Alert.alert("Lỗi", "Vui lòng nhập tên địa điểm.");
       return;
     }
-    
+
     try {
       setIsSavingFav(true);
       await FavouriteApi.create({
@@ -317,7 +403,6 @@ export default function MapViewerScreen() {
         numberOfFlight: 0
       });
 
-      // Update local list to show the new heart immediately
       setFavouritesList(prev => [...prev, {
         _id: Math.random().toString(),
         name: favouriteName,
@@ -354,34 +439,100 @@ export default function MapViewerScreen() {
     <View style={styles.container}>
       <StatusBar translucent barStyle="light-content" backgroundColor="transparent" />
 
-      {/* 💡 CHỈ HIỆN NÚT QUAY LẠI NẾU ĐANG ĐI TỪ PHIÊN BAY VÀO */}
       {isActiveFlight && (
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
       )}
 
-      {/* CHỈ HIỆN CẢNH BÁO NẾU ĐANG CÓ CHUYẾN BAY */}
       {isActiveFlight && warningZone && (
-        <View style={[styles.warningBanner, { backgroundColor: warningZone.type === 'no_fly' ? 'rgba(255,59,48,0.95)' : 'rgba(255,204,0,0.95)' }]}>
-          <Ionicons name="warning" size={26} color={warningZone.type === 'no_fly' ? '#FFF' : '#333'} />
+        <View style={[
+          styles.warningBanner,
+          {
+            backgroundColor: warningZone.status === 'inside'
+              ? (warningZone.type === 'no_fly' ? 'rgba(255,59,48,0.95)' : 'rgba(255,204,0,0.95)')
+              : 'rgba(255,149,0,0.95)'
+          }
+        ]}>
+          <Ionicons
+            name={warningZone.status === 'inside' ? "warning" : "alert-circle"}
+            size={26}
+            color={(warningZone.status === 'inside' && warningZone.type === 'no_fly') ? '#FFF' : '#333'}
+          />
           <View style={{ marginLeft: 12, flex: 1 }}>
-            <Text style={[styles.warningTitle, { color: warningZone.type === 'no_fly' ? '#FFF' : '#333' }]}>
-              {warningZone.type === 'no_fly' ? 'CẢNH BÁO: VÙNG CẤM BAY' : 'CHÚ Ý: VÙNG HẠN CHẾ'}
+            <Text style={[
+              styles.warningTitle,
+              { color: (warningZone.status === 'inside' && warningZone.type === 'no_fly') ? '#FFF' : '#333' }
+            ]}>
+              {warningZone.status === 'inside'
+                ? (warningZone.type === 'no_fly' ? 'CẢNH BÁO: VÙNG CẤM BAY' : 'CHÚ Ý: VÙNG HẠN CHẾ')
+                : (warningZone.type === 'no_fly' ? 'NGUY HIỂM: SẮP VÀO VÙNG CẤM' : 'SẮP VÀO VÙNG HẠN CHẾ')
+              }
             </Text>
-            <Text style={[styles.warningText, { color: warningZone.type === 'no_fly' ? '#FFF' : '#333' }]}>
-              Drone đang trong khu vực {warningZone.name}
+            <Text style={[
+              styles.warningText,
+              { color: (warningZone.status === 'inside' && warningZone.type === 'no_fly') ? '#FFF' : '#333' }
+            ]}>
+              {warningZone.status === 'inside'
+                ? `Drone đang vi phạm khu vực ${warningZone.name}`
+                : `Drone đang cách khu vực ${warningZone.name} dưới 500m!`
+              }
             </Text>
           </View>
         </View>
       )}
 
+      {isActiveFlight && buildingWarning && (
+        isWarningExpanded ? (
+          <View style={[
+            styles.warningBanner,
+            {
+              backgroundColor: '#FF0000',
+              top: warningZone ? 180 : 110,
+              borderWidth: 2,
+              borderColor: '#FFF'
+            }
+          ]}>
+            <Ionicons name="flash" size={28} color="#FFF" />
+            <View style={{ marginLeft: 12, flex: 1 }}>
+              <Text style={[styles.warningTitle, { color: '#FFF', fontSize: 18 }]}>
+                NGUY CƠ VA CHẠM (50M)
+              </Text>
+              <Text style={[styles.warningText, { color: '#FFF', fontWeight: 'bold' }]}>
+                Phát hiện {buildingWarning.name} (Cao {buildingWarning.height}m).
+                Độ cao hiện tại ({currentDrone.altitude}m) không an toàn!
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setIsWarningExpanded(false)} style={{ padding: 4 }}>
+              <Ionicons name="close" size={26} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.minimizedWarningBtn}
+            onPress={() => setIsWarningExpanded(true)}
+          >
+            <Ionicons name="warning" size={28} color="#FFF" />
+          </TouchableOpacity>
+        )
+      )}
+
       <Mapbox.MapView
         style={styles.map}
+        ref={mapRef}
         styleURL={Mapbox.StyleURL.SatelliteStreet}
         onPress={handleMapPress}
         onDidFinishLoadingMap={() => setMapReady(true)}
       >
+        <Mapbox.UserLocation
+          visible={true}
+          onUpdate={(loc) => {
+            userLocationRef.current = {
+              lat: loc.coords.latitude,
+              lng: loc.coords.longitude,
+            };
+          }}
+        />
         <Mapbox.Camera
           ref={cameraRef}
           defaultSettings={{
@@ -476,40 +627,79 @@ export default function MapViewerScreen() {
         })}
       </Mapbox.MapView>
 
-      {/* 💡 CHỈ HIỆN KHUNG ĐIỀU KHIỂN & KẾT THÚC BAY NẾU ĐANG LÀ CHUYẾN BAY ACTIVE */}
+      {/* Nút định vị vị trí hiện tại */}
+      <TouchableOpacity
+        style={styles.locateBtn}
+        onPress={() => {
+          const loc = userLocationRef.current;
+          if (loc && cameraRef.current) {
+            cameraRef.current.setCamera({
+              centerCoordinate: [loc.lng, loc.lat],
+              zoomLevel: 17,
+              animationDuration: 800,
+            });
+          } else {
+            Alert.alert('Chưa xác định được vị trí', 'Hãy đảm bảo GPS đang bật.');
+          }
+        }}
+      >
+        <Ionicons name="locate" size={24} color="#0055FF" />
+      </TouchableOpacity>
+
       {isActiveFlight && (
-        <View style={styles.bottomPanel}>
-          <Text style={styles.droneModelName}>{droneModel}</Text>
+        isPanelExpanded ? (
+          <View style={styles.bottomPanel}>
+            <TouchableOpacity
+              style={styles.minimizePanelIcon}
+              onPress={() => setIsPanelExpanded(false)}
+            >
+              <Ionicons name="chevron-down" size={28} color="#CCC" />
+            </TouchableOpacity>
 
-          <View style={styles.subHeaderPanel}>
-            <View>
-              <Text style={styles.infoText}>
-                Drone ID: <Text style={{ fontWeight: 'bold', color: '#333' }}>{simulatorDroneId || connectedMongoId}</Text>
-              </Text>
-              <Text style={styles.infoText}>
-                Session ID: <Text style={{ fontWeight: 'bold', color: '#333' }}>{sessionId}</Text>
-              </Text>
+            <View style={styles.infoFlex}>
+              <Text style={styles.droneModelName}>{droneModel}</Text>
+              <Text style={{ color: '#4CAF50', fontWeight: 'bold' }}>{battery}% 🔋</Text>
             </View>
-            <Text style={{ color: '#4CAF50', fontWeight: 'bold' }}>{currentDrone.batteryLevel}% 🔋</Text>
-          </View>
 
-          <View style={styles.telemetryRow}>
-            <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.speed}</Text><Text style={styles.telemetryLabel}>Tốc độ</Text></View>
-            <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.altitude}</Text><Text style={styles.telemetryLabel}>Độ cao</Text></View>
-            <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.heading}°</Text><Text style={styles.telemetryLabel}>Hướng</Text></View>
+            <View style={styles.subHeaderPanel}>
+              <View>
+                <Text style={styles.infoText}>
+                  Drone ID: <Text style={{ fontWeight: 'bold', color: '#333' }}>{simulatorDroneId || connectedMongoId}</Text>
+                </Text>
+                <Text style={styles.infoText}>
+                  Session ID: <Text style={{ fontWeight: 'bold', color: '#333' }}>{sessionId}</Text>
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.telemetryRow}>
+              <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.speed}</Text><Text style={styles.telemetryLabel}>Tốc độ</Text></View>
+              <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.altitude}</Text><Text style={styles.telemetryLabel}>Độ cao</Text></View>
+              <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.heading}°</Text><Text style={styles.telemetryLabel}>Hướng</Text></View>
+            </View>
+            <TouchableOpacity style={styles.endBtn} onPress={() => handleEndFlight(currentDrone.altitude)} disabled={isEnding}>
+              {isEnding ? <ActivityIndicator color="white" /> : <Text style={styles.endBtnText}>KẾT THÚC BAY</Text>}
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.endBtn} onPress={handleEndFlight} disabled={isEnding}>
-            {isEnding ? <ActivityIndicator color="white" /> : <Text style={styles.endBtnText}>KẾT THÚC BAY</Text>}
+        ) : (
+          <TouchableOpacity
+            style={styles.minimizedPanel}
+            onPress={() => setIsPanelExpanded(true)}
+          >
+            <Ionicons name="chevron-back" size={15} color="#0055FF" style={{ alignSelf: 'center', marginBottom: 5 }} />
+            <Text style={styles.minimizedText}>tốc độ: {currentDrone.speed}</Text>
+            <Text style={styles.minimizedText}>hướng: {currentDrone.heading}°</Text>
+            <Text style={styles.minimizedText}>độ cao: {currentDrone.altitude}m</Text>
           </TouchableOpacity>
-        </View>
+        )
       )}
 
-      {selectedPoint && (
+      {selectedPoint && !isActiveFlight && (
         <View
           style={[
             styles.favPanel,
             {
-              bottom: (isActiveFlight ? 220 : 20) + keyboardHeight
+              bottom: 20 + keyboardHeight
             }
           ]}
         >
@@ -519,10 +709,10 @@ export default function MapViewerScreen() {
               <Ionicons name="close-circle" size={24} color="#888" />
             </TouchableOpacity>
           </View>
-          
+
           <Text style={styles.favText}>Tọa độ: {selectedPoint.lat.toFixed(5)}, {selectedPoint.lng.toFixed(5)}</Text>
           {distanceToSelected !== null && (
-            <Text style={styles.favText}>Cách vị trí hiện tại: <Text style={{fontWeight: 'bold', color: '#0055FF'}}>{distanceToSelected.toFixed(2)} km</Text></Text>
+            <Text style={styles.favText}>Cách vị trí hiện tại: <Text style={{ fontWeight: 'bold', color: '#0055FF' }}>{distanceToSelected.toFixed(2)} km</Text></Text>
           )}
 
           <TextInput
@@ -531,10 +721,10 @@ export default function MapViewerScreen() {
             value={favouriteName}
             onChangeText={setFavouriteName}
           />
-          
-          <TouchableOpacity 
-            style={styles.favBtn} 
-            onPress={handleSaveFavourite} 
+
+          <TouchableOpacity
+            style={styles.favBtn}
+            onPress={handleSaveFavourite}
             disabled={isSavingFav}
           >
             {isSavingFav ? <ActivityIndicator color="#fff" /> : <Text style={styles.favBtnText}>LƯU YÊU THÍCH</Text>}
@@ -549,6 +739,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#000" },
   map: { flex: 1 },
   backBtn: { position: 'absolute', top: 50, left: 20, zIndex: 10, backgroundColor: 'white', padding: 10, borderRadius: 20, elevation: 5 },
+  locateBtn: { position: 'absolute', bottom: 100, right: 20, zIndex: 10, backgroundColor: 'white', padding: 12, borderRadius: 30, elevation: 6, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 6, shadowOffset: { width: 0, height: 3 } },
   warningBanner: { position: 'absolute', top: 110, left: 20, right: 20, zIndex: 10, flexDirection: 'row', alignItems: 'center', padding: 15, borderRadius: 12, elevation: 8, shadowColor: '#000', shadowOpacity: 0.3, shadowRadius: 5, shadowOffset: { width: 0, height: 3 } },
   warningTitle: { fontWeight: 'bold', fontSize: 16, marginBottom: 2 },
   warningText: { fontSize: 13, fontWeight: '500' },
@@ -580,5 +771,54 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  infoFlex: {
+    display: "flex",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  minimizePanelIcon: {
+    alignItems: 'center',
+    marginTop: -10,
+    marginBottom: 5,
+  },
+  minimizedPanel: {
+    position: 'absolute',
+    right: 5,
+    top: '45%',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    padding: 10,
+    borderRadius: 12,
+    zIndex: 10,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  minimizedText: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#333',
+    marginVertical: 2,
+  },
+  minimizedWarningBtn: {
+    position: 'absolute',
+    top: 110,
+    right: 20,
+    backgroundColor: '#FF0000',
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: '#FFF',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 3 },
   }
 });

@@ -57,7 +57,6 @@ export default function ProfileTab() {
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.avatarPlaceholder}>
-          {/* Hiển thị ảnh thật nếu có URL, nếu không hiện chữ cái đầu */}
           {user?.profile?.avatar ? (
             <Image source={{ uri: user.profile.avatar }} style={styles.avatarImg} />
           ) : (

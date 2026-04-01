@@ -2,7 +2,7 @@ import API_URL from '@/constants/Config';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import PackageApi from "../api/packageApi";
 
@@ -20,13 +20,18 @@ const RegisterFleetOperator = () => {
     const [userId, setUserId] = useState<string>("");
     const [userRole, setUserRole] = useState<string>("");
     const [pack, setPack] = useState<PackType>();
+    const [paymentSuccess, setPaymentSuccess] = useState(false);
+    const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const userToken = useRef<string>("");
 
     useEffect(() => {
         const fetchUserData = async () => {
             const dataId = await AsyncStorage.getItem("USER_PROFILE_ID");
             const dataProfile = await AsyncStorage.getItem("USER_PROFILE");
+            const token = await AsyncStorage.getItem("USER_TOKEN");
 
             if (dataId) setUserId(JSON.parse(dataId));
+            if (token) userToken.current = JSON.parse(token);
             if (dataProfile) {
                 const profile = JSON.parse(dataProfile);
                 setUserRole(profile.role);
@@ -39,7 +44,36 @@ const RegisterFleetOperator = () => {
         }
         fetchPackage();
         fetchUserData();
+
+        return () => {
+            if (pollingRef.current) clearInterval(pollingRef.current);
+        };
     }, [])
+
+    const startPolling = () => {
+        if (pollingRef.current) return; // đã polling rồi thì bỏ qua
+        pollingRef.current = setInterval(async () => {
+            try {
+                const res = await fetch(`${API_URL}/auth/profile`, {
+                    headers: { Authorization: `Bearer ${userToken.current}` }
+                });
+                const data = await res.json();
+                if (data?.role === 'FLEET_OPERATOR' || data?.data?.role === 'FLEET_OPERATOR') {
+                    clearInterval(pollingRef.current!);
+                    pollingRef.current = null;
+                    const stored = await AsyncStorage.getItem("USER_PROFILE");
+                    if (stored) {
+                        const profile = JSON.parse(stored);
+                        profile.role = 'FLEET_OPERATOR';
+                        await AsyncStorage.setItem("USER_PROFILE", JSON.stringify(profile));
+                    }
+                    setPaymentSuccess(true);
+                }
+            } catch (e) {
+
+            }
+        }, 5000);
+    }
 
     const handlePayment = async () => {
         setLoading(true);
@@ -50,7 +84,7 @@ const RegisterFleetOperator = () => {
                     "content-type": "application/json"
                 },
                 body: JSON.stringify({
-                    order_description: "Nạp tiền nâng cấp tài khoản",
+                    order_description: pack?.description,
                     order_amount: pack?.price,
                     package_id: "69bfb75e77852f25b566f1fe",
                     customer_id: userId
@@ -59,7 +93,8 @@ const RegisterFleetOperator = () => {
             const response = await data.json();
 
             if (response.success) {
-                setQrUrl(response.paymentCheckoutUrl)
+                setQrUrl(response.paymentCheckoutUrl);
+                startPolling();
             } else {
                 alert("Lỗi từ server: " + response.message);
             }
@@ -70,15 +105,23 @@ const RegisterFleetOperator = () => {
         }
     }
 
-    if (userRole === 'FLEET_OPERATOR') {
+    const isFleetOperator = userRole === 'FLEET_OPERATOR';
+
+    if (isFleetOperator || paymentSuccess) {
         return (
             <SafeAreaView style={styles.safeArea}>
                 <View style={styles.successCard}>
                     <View style={styles.iconWrapper}>
                         <Ionicons name="checkmark-circle" size={80} color="#4CAF50" />
                     </View>
-                    <Text style={styles.successTitle}>Chúc mừng!</Text>
-                    <Text style={styles.successSubtitle}>Bạn đã là vận hành bay. Không cần nâng cấp thêm.</Text>
+                    <Text style={styles.successTitle}>
+                        {paymentSuccess && !isFleetOperator ? '🎉 Thanh toán thành công!' : 'Chúc mừng!'}
+                    </Text>
+                    <Text style={styles.successSubtitle}>
+                        {paymentSuccess && !isFleetOperator
+                            ? 'Tài khoản của bạn đã được nâng cấp lên Fleet Operator!'
+                            : 'Bạn đã là vận hành bay. Không cần nâng cấp thêm.'}
+                    </Text>
 
                     <TouchableOpacity style={styles.primaryBtn} onPress={() => router.replace('/(FleetOperator)')}>
                         <Text style={styles.btnText}>Đến bộ đàm Fleet Operator</Text>
@@ -155,6 +198,12 @@ const RegisterFleetOperator = () => {
                                     </View>
                                     <Text style={styles.featureText}>Quản lý đội bay chuyên nghiệp</Text>
                                 </View>
+                                <View style={styles.featureItem}>
+                                    <View style={styles.iconBox}>
+                                        <Ionicons name="laptop-outline" size={20} color="#0055FF" />
+                                    </View>
+                                    <Text style={styles.featureText}>Thực hiện trên web hiện đại</Text>
+                                </View>
                             </View>
 
                             <TouchableOpacity
@@ -211,7 +260,7 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.08,
         shadowRadius: 15,
-        elevation:5,
+        elevation: 5,
         marginTop: 10,
     },
     qrWrapper: {
