@@ -14,8 +14,8 @@ import { io, Socket } from "socket.io-client";
 // const SIMULATOR_URL = "http://10.139.229.139:3001";
 // const REAL_BE_URL = "http://10.139.229.139:3000";
 
-const SIMULATOR_URL = "http://192.168.3.192:3001";
-const REAL_BE_URL = "http://192.168.3.192:3000";
+const SIMULATOR_URL = "http://192.168.1.10:3001";
+const REAL_BE_URL = "http://192.168.1.10:5000";
 
 type DroneState = {
   droneId: string;
@@ -25,6 +25,7 @@ type DroneState = {
   speed: number;
   heading: number;
   batteryLevel: number;
+  isMock?: boolean; // 🟢 THÊM PHẦN NÀY: Để đánh dấu máy bay ảo
 };
 
 export default function MapViewerScreen() {
@@ -67,6 +68,10 @@ export default function MapViewerScreen() {
 
   const mapRef = useRef<Mapbox.MapView>(null);
   const [buildingWarning, setBuildingWarning] = useState<{ isColliding: boolean, height: number, name: string } | null>(null);
+
+  // 👉 THÊM DÒNG NÀY: State lưu cảnh báo va chạm với máy bay khác
+  const [droneWarning, setDroneWarning] = useState<{ isColliding: boolean, droneId: string, distance: number } | null>(null);
+
   const lastCollisionCheck = useRef<number>(0);
 
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
@@ -165,7 +170,8 @@ export default function MapViewerScreen() {
     const connectSockets = async () => {
       const JWT_TOKEN = await AsyncStorage.getItem('ACCESS_TOKEN');
 
-      simSocket = io(SIMULATOR_URL, { transports: ["websocket"] });
+      // simSocket = io(SIMULATOR_URL, { transports: ["websocket"] });
+      simSocket = io(SIMULATOR_URL, { transports: ["polling", "websocket"] });
       simSocketRef.current = simSocket;
 
       simSocket.on("connect", () => {
@@ -304,12 +310,62 @@ export default function MapViewerScreen() {
       beSocket = io(REAL_BE_URL, {
         path: "/ws",
         auth: { token: JWT_TOKEN },
-        transports: ["websocket"]
+        transports: ["polling", "websocket"]
+        // transports: ["websocket"]
       });
       beSocketRef.current = beSocket;
 
+      // 🪵 LOG 1: Bắt lỗi kết nối nếu sập
+      beSocket.on("connect_error", (err) => {
+        console.log("🔴 [LOG MO] LỖI KẾT NỐI BACKEND:", err.message);
+      });
+
       beSocket.on("connect", () => {
-        if (sessionId) beSocket.emit("watch_session", { sessionId: sessionId });
+        console.log("🟢 [LOG MO] KẾT NỐI BACKEND THÀNH CÔNG! ID:", beSocket.id);
+        
+        if (sessionId) {
+          beSocket.emit("watch_session", { sessionId: sessionId });
+          
+          console.log("📤 [LOG MO] Gửi lệnh xin Radar (subscribe_nearby)...");
+          beSocket.emit("subscribe_nearby", { 
+            sessionId: sessionId, 
+            lat: 10.762622, 
+            lng: 106.660172 
+          });
+        }
+      });
+
+      // 🟢 THÊM PHẦN NÀY: Lắng nghe và hứng data máy bay ảo từ BE
+      beSocket.on("nearby_drones", (data) => {
+        const nearbyList = data?.drones || data;
+        
+        // 🪵 LOG 2: In ra số lượng máy bay nhận được
+        console.log(`🚁 [LOG MO] Nhận data Radar: Có ${Array.isArray(nearbyList) ? nearbyList.length : 0} máy bay.`);
+        
+        // 🪵 LOG 3: In chi tiết 1 con ra để check cấu trúc biến
+        if (Array.isArray(nearbyList) && nearbyList.length > 0) {
+           console.log("🔍 [LOG MO] Chi tiết 1 máy bay ảo:", nearbyList[0]);
+        }
+
+        if (!Array.isArray(nearbyList)) return;
+
+        setDrones(prev => {
+          const nextState = { ...prev };
+          nearbyList.forEach((d: any) => {
+            if (d.droneId === simulatorDroneId) return; // Bỏ qua drone chính
+            nextState[d.droneId] = {
+              droneId: String(d.droneId),
+              lat: Number(d.lat),
+              lng: Number(d.lng),
+              altitude: Number(d.altitude || 0),
+              speed: Number(d.speed || 0),
+              heading: Number(d.heading || 0),
+              batteryLevel: d.batteryLevel || 100,
+              isMock: true // Đánh dấu đây là máy bay ảo
+            };
+          });
+          return nextState;
+        });
       });
 
       beSocket.on("alert", (alertData) => {
@@ -324,6 +380,43 @@ export default function MapViewerScreen() {
       if (beSocketRef.current) beSocketRef.current.disconnect();
     };
   }, [sessionId, simulatorDroneId, mapReady]);
+
+  // 👉 THÊM NGUYÊN ĐOẠN NÀY: Tính toán khoảng cách giữa mình và các máy bay khác
+  useEffect(() => {
+    
+    if (!simulatorDroneId || !drones[simulatorDroneId] || !isActiveFlight) return;
+
+    const myDrone = drones[simulatorDroneId];
+    const myPoint = turf.point([myDrone.lng, myDrone.lat]);
+    let closestDrone = null;
+    let minDistance = Infinity;
+
+    Object.values(drones).forEach(d => {
+      // Bỏ qua chính mình
+      if (d.droneId === simulatorDroneId) return;
+
+      const otherPoint = turf.point([d.lng, d.lat]);
+      const distanceKm = turf.distance(myPoint, otherPoint, { units: 'kilometers' });
+      const distanceM = distanceKm * 1000; // Đổi ra mét
+
+      // Nếu cách dưới 500 mét thì báo động
+      if (distanceM < 500 && distanceM < minDistance) {
+        minDistance = distanceM;
+        closestDrone = d;
+      }
+    });
+    
+    if (closestDrone) {
+      setDroneWarning({
+        isColliding: true,
+        droneId: closestDrone.droneId,
+        distance: Math.round(minDistance)
+      });
+      setIsWarningExpanded(true); // Tự động bung bảng cảnh báo
+    } else {
+      setDroneWarning(null);
+    }
+  }, [drones, simulatorDroneId, isActiveFlight]);
 
   const handleEndFlight = async (altitude: number) => {
     if (!sessionId) return;
@@ -424,7 +517,10 @@ export default function MapViewerScreen() {
     const list = Object.values(drones);
     if (list.length === 0) return null;
     return turf.featureCollection(
-      list.map(d => turf.point([d.lng, d.lat], { ...d, isConnected: d.droneId === simulatorDroneId }))
+      list.map(d => turf.point([Number(d.lng), Number(d.lat)], { 
+        ...d, 
+        isConnected: d.droneId === simulatorDroneId 
+      }))
     );
   }, [drones, simulatorDroneId]);
 
@@ -445,10 +541,45 @@ export default function MapViewerScreen() {
         </TouchableOpacity>
       )}
 
-      {isActiveFlight && warningZone && (
+      {/* 👉 THÊM CỤC NÀY: Giao diện báo động va chạm Drone */}
+      {isActiveFlight && droneWarning && (
+        isWarningExpanded ? (
+          <View style={[
+            styles.warningBanner,
+            {
+              backgroundColor: '#9C27B0', // Màu tím cho dễ phân biệt với tòa nhà
+              // Đẩy nó xuống dưới xíu nếu đang có cảnh báo khác để không bị đè
+              top: (warningZone || buildingWarning) ? 180 : 110, 
+              borderWidth: 2,
+              borderColor: '#FFF'
+            }
+          ]}>
+            <Ionicons name="warning" size={28} color="#FFF" />
+            <View style={{ marginLeft: 12, flex: 1 }}>
+              <Text style={[styles.warningText, { color: '#FFF', fontWeight: 'bold' }]}>
+                Có 1 Drone khác đang ở rất gần!
+                Cách bạn {droneWarning.distance}m.
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setIsWarningExpanded(false)} style={{ padding: 4 }}>
+              <Ionicons name="close" size={26} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[styles.minimizedWarningBtn, { backgroundColor: '#9C27B0', top: (warningZone || buildingWarning) ? 180 : 110 }]}
+            onPress={() => setIsWarningExpanded(true)}
+          >
+            <Ionicons name="warning" size={28} color="#FFF" />
+          </TouchableOpacity>
+        )
+      )}
+
+     {isActiveFlight && warningZone && (
         <View style={[
           styles.warningBanner,
           {
+            paddingVertical: 8, // Làm banner mỏng lại
             backgroundColor: warningZone.status === 'inside'
               ? (warningZone.type === 'no_fly' ? 'rgba(255,59,48,0.95)' : 'rgba(255,204,0,0.95)')
               : 'rgba(255,149,0,0.95)'
@@ -456,26 +587,21 @@ export default function MapViewerScreen() {
         ]}>
           <Ionicons
             name={warningZone.status === 'inside' ? "warning" : "alert-circle"}
-            size={26}
+            size={22} // Giảm size icon cho cân đối
             color={(warningZone.status === 'inside' && warningZone.type === 'no_fly') ? '#FFF' : '#333'}
           />
-          <View style={{ marginLeft: 12, flex: 1 }}>
-            <Text style={[
-              styles.warningTitle,
-              { color: (warningZone.status === 'inside' && warningZone.type === 'no_fly') ? '#FFF' : '#333' }
-            ]}>
-              {warningZone.status === 'inside'
-                ? (warningZone.type === 'no_fly' ? 'CẢNH BÁO: VÙNG CẤM BAY' : 'CHÚ Ý: VÙNG HẠN CHẾ')
-                : (warningZone.type === 'no_fly' ? 'NGUY HIỂM: SẮP VÀO VÙNG CẤM' : 'SẮP VÀO VÙNG HẠN CHẾ')
-              }
-            </Text>
+          <View style={{ marginLeft: 10, flex: 1 }}>
             <Text style={[
               styles.warningText,
-              { color: (warningZone.status === 'inside' && warningZone.type === 'no_fly') ? '#FFF' : '#333' }
+              { 
+                fontSize: 14, 
+                fontWeight: 'bold',
+                color: (warningZone.status === 'inside' && warningZone.type === 'no_fly') ? '#FFF' : '#333' 
+              }
             ]}>
               {warningZone.status === 'inside'
-                ? `Drone đang vi phạm khu vực ${warningZone.name}`
-                : `Drone đang cách khu vực ${warningZone.name} dưới 500m!`
+                ? `VI PHẠM: ${warningZone.name}`
+                : `CÁCH VÙNG HẠN CHẾ (${warningZone.name}) < 500m`
               }
             </Text>
           </View>
@@ -582,13 +708,14 @@ export default function MapViewerScreen() {
           </Mapbox.ShapeSource>
         )}
 
+        {/* 💡 LAYER HIỂN THỊ MÁY BAY: Dùng "isMock" để đổi màu */}
         {dronesGeoJSON && (
           <Mapbox.ShapeSource id="drones" shape={dronesGeoJSON as any}>
             <Mapbox.CircleLayer
               id="drone-circle"
               style={{
-                circleRadius: 10,
-                circleColor: "#69F0AE",
+                circleRadius: ["case", ["==", ["get", "isMock"], true], 8, 10],
+                circleColor: ["case", ["==", ["get", "isMock"], true], "#FFCC00", "#69F0AE"],
                 circleStrokeColor: ["case", ["==", ["get", "isConnected"], true], "#00E5FF", "#ffffff"],
                 circleStrokeWidth: 3,
                 circlePitchAlignment: "map",
@@ -597,7 +724,7 @@ export default function MapViewerScreen() {
           </Mapbox.ShapeSource>
         )}
 
-        {selectedPoint && (
+        {selectedPoint && !isActiveFlight && (
           <Mapbox.ShapeSource id="selected-point-source" shape={turf.point([selectedPoint.lng, selectedPoint.lat]) as any}>
             <Mapbox.CircleLayer
               id="selected-point-circle"
@@ -698,9 +825,7 @@ export default function MapViewerScreen() {
         <View
           style={[
             styles.favPanel,
-            {
-              bottom: 20 + keyboardHeight
-            }
+            { bottom: 20 + keyboardHeight }
           ]}
         >
           <View style={styles.favHeader}>
