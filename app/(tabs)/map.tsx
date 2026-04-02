@@ -14,8 +14,11 @@ import { io, Socket } from "socket.io-client";
 // const SIMULATOR_URL = "http://10.139.229.139:3001";
 // const REAL_BE_URL = "http://10.139.229.139:3000";
 
-const SIMULATOR_URL = "http://192.168.1.10:3001";
-const REAL_BE_URL = "http://192.168.1.10:5000";
+const SIMULATOR_URL = "http://10.69.228.139:3001";
+const REAL_BE_URL = "http://10.69.228.139:5000";
+
+// const SIMULATOR_URL = "http://10.69.228.139:3001";
+// const REAL_BE_URL = "http://10.69.228.139:5000";
 
 type DroneState = {
   droneId: string;
@@ -25,7 +28,7 @@ type DroneState = {
   speed: number;
   heading: number;
   batteryLevel: number;
-  isMock?: boolean; // 🟢 THÊM PHẦN NÀY: Để đánh dấu máy bay ảo
+  isMock?: boolean;
 };
 
 export default function MapViewerScreen() {
@@ -36,7 +39,6 @@ export default function MapViewerScreen() {
   const sessionId = params.sessionId as string;
   const connectedMongoId = (params.connectedDroneId || params.droneId) as string;
 
-  // CỜ QUAN TRỌNG: Kiểm tra xem có đang trong chuyến bay không
   const isActiveFlight = !!sessionId && sessionId !== '';
 
   const [drones, setDrones] = useState<Record<string, DroneState>>({});
@@ -76,6 +78,7 @@ export default function MapViewerScreen() {
 
   const [isPanelExpanded, setIsPanelExpanded] = useState(true);
   const [isWarningExpanded, setIsWarningExpanded] = useState(true);
+  const lastRadarRequestTime = useRef<number>(0);
 
   const favLat = params.favLat as string;
   const favLng = params.favLng as string;
@@ -157,7 +160,6 @@ export default function MapViewerScreen() {
   }, [connectedMongoId, sessionId]);
 
   useEffect(() => {
-    // Tự động bung bảng cảnh báo nếu phát hiện vật cản mới
     if (buildingWarning) {
       setIsWarningExpanded(true);
     }
@@ -212,24 +214,42 @@ export default function MapViewerScreen() {
         });
 
         if (dId === simulatorDroneId) {
+
+
+          if (beSocketRef.current && sessionId) {
+            const now = Date.now();
+            // Chỉ gửi lên Backend 2 giây 1 lần để tránh nghẽn mạng
+            if (now - lastRadarRequestTime.current > 2000) {
+              lastRadarRequestTime.current = now;
+              beSocketRef.current.emit("subscribe_nearby", {
+                sessionId: sessionId,
+                lat: droneLat,
+                lng: droneLng
+              });
+            }
+          }
           const dronePoint = turf.point([droneLng, droneLat]);
           let currentWarning: { name: string, type: string, status: 'inside' | 'near' } | null = null;
 
+
           for (const zone of zonesRef.current) {
             try {
-              if (zone.geometry && zone.geometry.coordinates) {
-                const polygon = turf.polygon(zone.geometry.coordinates);
+              const zoneMaxAltitude = zone.maxAltitude || 120;
+              if (droneAlt <= zoneMaxAltitude) {
+                if (zone.geometry && zone.geometry.coordinates) {
+                  const polygon = turf.polygon(zone.geometry.coordinates);
 
-                const isInside = turf.booleanPointInPolygon(dronePoint, polygon as any);
-                if (isInside) {
-                  currentWarning = { name: zone.name, type: zone.type, status: 'inside' };
-                  break;
-                }
+                  const isInside = turf.booleanPointInPolygon(dronePoint, polygon as any);
+                  if (isInside) {
+                    currentWarning = { name: zone.name, type: zone.type, status: 'inside' };
+                    break;
+                  }
 
-                const bufferedPolygon = turf.buffer(polygon, 0.5, { units: 'kilometers' });
-                if (bufferedPolygon && turf.booleanPointInPolygon(dronePoint, bufferedPolygon)) {
-                  if (!currentWarning) {
-                    currentWarning = { name: zone.name, type: zone.type, status: 'near' };
+                  const bufferedPolygon = turf.buffer(polygon, 0.5, { units: 'kilometers' });
+                  if (bufferedPolygon && turf.booleanPointInPolygon(dronePoint, bufferedPolygon)) {
+                    if (!currentWarning) {
+                      currentWarning = { name: zone.name, type: zone.type, status: 'near' };
+                    }
                   }
                 }
               }
@@ -243,7 +263,7 @@ export default function MapViewerScreen() {
           // --- 2. CHECK VA CHẠM TÒA NHÀ TRONG PHẠM VI 50M (DÙNG TỌA ĐỘ PIXEL) ---
           if (mapReady && mapRef.current) {
             const now = Date.now();
-            if (now - lastCollisionCheck.current > 1000) {
+            if (now - lastCollisionCheck.current > 200) {
               lastCollisionCheck.current = now;
 
               try {
@@ -322,29 +342,29 @@ export default function MapViewerScreen() {
 
       beSocket.on("connect", () => {
         console.log("🟢 [LOG MO] KẾT NỐI BACKEND THÀNH CÔNG! ID:", beSocket.id);
-        
+
         if (sessionId) {
           beSocket.emit("watch_session", { sessionId: sessionId });
-          
-          console.log("📤 [LOG MO] Gửi lệnh xin Radar (subscribe_nearby)...");
-          beSocket.emit("subscribe_nearby", { 
-            sessionId: sessionId, 
-            lat: 10.762622, 
-            lng: 106.660172 
-          });
+
+          // console.log("📤 [LOG MO] Gửi lệnh xin Radar (subscribe_nearby)...");
+          // beSocket.emit("subscribe_nearby", {
+          //   sessionId: sessionId,
+          //   lat: 10.762622,
+          //   lng: 106.660172
+          // });
         }
       });
 
       // 🟢 THÊM PHẦN NÀY: Lắng nghe và hứng data máy bay ảo từ BE
       beSocket.on("nearby_drones", (data) => {
         const nearbyList = data?.drones || data;
-        
+
         // 🪵 LOG 2: In ra số lượng máy bay nhận được
         console.log(`🚁 [LOG MO] Nhận data Radar: Có ${Array.isArray(nearbyList) ? nearbyList.length : 0} máy bay.`);
-        
+
         // 🪵 LOG 3: In chi tiết 1 con ra để check cấu trúc biến
         if (Array.isArray(nearbyList) && nearbyList.length > 0) {
-           console.log("🔍 [LOG MO] Chi tiết 1 máy bay ảo:", nearbyList[0]);
+          console.log("🔍 [LOG MO] Chi tiết 1 máy bay ảo:", nearbyList[0]);
         }
 
         if (!Array.isArray(nearbyList)) return;
@@ -368,9 +388,9 @@ export default function MapViewerScreen() {
         });
       });
 
-      beSocket.on("alert", (alertData) => {
-        Alert.alert("CẢNH BÁO", alertData.message);
-      });
+      // beSocket.on("alert", (alertData) => {
+      //   Alert.alert("CẢNH BÁO", alertData.message);
+      // });
     };
 
     if (sessionId && simulatorDroneId) connectSockets();
@@ -383,7 +403,7 @@ export default function MapViewerScreen() {
 
   // 👉 THÊM NGUYÊN ĐOẠN NÀY: Tính toán khoảng cách giữa mình và các máy bay khác
   useEffect(() => {
-    
+
     if (!simulatorDroneId || !drones[simulatorDroneId] || !isActiveFlight) return;
 
     const myDrone = drones[simulatorDroneId];
@@ -405,11 +425,11 @@ export default function MapViewerScreen() {
         closestDrone = d;
       }
     });
-    
+
     if (closestDrone) {
       setDroneWarning({
         isColliding: true,
-        droneId: closestDrone.droneId,
+        droneId: closestDrone?.droneId,
         distance: Math.round(minDistance)
       });
       setIsWarningExpanded(true); // Tự động bung bảng cảnh báo
@@ -517,9 +537,9 @@ export default function MapViewerScreen() {
     const list = Object.values(drones);
     if (list.length === 0) return null;
     return turf.featureCollection(
-      list.map(d => turf.point([Number(d.lng), Number(d.lat)], { 
-        ...d, 
-        isConnected: d.droneId === simulatorDroneId 
+      list.map(d => turf.point([Number(d.lng), Number(d.lat)], {
+        ...d,
+        isConnected: d.droneId === simulatorDroneId
       }))
     );
   }, [drones, simulatorDroneId]);
@@ -530,6 +550,17 @@ export default function MapViewerScreen() {
       zones.map(z => turf.feature(z.geometry, { type: z.type, name: z.name }))
     );
   }, [zones]);
+
+
+  const remainingFlightTime = useMemo(() => {
+    const secondsPerPercent = 30;
+    const totalSeconds = battery * secondsPerPercent;
+
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    return { minutes, seconds };
+  }, [battery]);
 
   return (
     <View style={styles.container}>
@@ -549,7 +580,7 @@ export default function MapViewerScreen() {
             {
               backgroundColor: '#9C27B0', // Màu tím cho dễ phân biệt với tòa nhà
               // Đẩy nó xuống dưới xíu nếu đang có cảnh báo khác để không bị đè
-              top: (warningZone || buildingWarning) ? 180 : 110, 
+              top: (warningZone || buildingWarning) ? 180 : 110,
               borderWidth: 2,
               borderColor: '#FFF'
             }
@@ -575,7 +606,7 @@ export default function MapViewerScreen() {
         )
       )}
 
-     {isActiveFlight && warningZone && (
+      {isActiveFlight && warningZone && (
         <View style={[
           styles.warningBanner,
           {
@@ -593,15 +624,15 @@ export default function MapViewerScreen() {
           <View style={{ marginLeft: 10, flex: 1 }}>
             <Text style={[
               styles.warningText,
-              { 
-                fontSize: 14, 
+              {
+                fontSize: 14,
                 fontWeight: 'bold',
-                color: (warningZone.status === 'inside' && warningZone.type === 'no_fly') ? '#FFF' : '#333' 
+                color: (warningZone.status === 'inside' && warningZone.type === 'no_fly') ? '#FFF' : '#333'
               }
             ]}>
               {warningZone.status === 'inside'
                 ? `VI PHẠM: ${warningZone.name}`
-                : `CÁCH VÙNG HẠN CHẾ (${warningZone.name}) < 500m`
+                : `CÁCH VÙNG HẠN CHẾ/VÙNG CẤM (${warningZone.name}) < 500m`
               }
             </Text>
           </View>
@@ -621,9 +652,6 @@ export default function MapViewerScreen() {
           ]}>
             <Ionicons name="flash" size={28} color="#FFF" />
             <View style={{ marginLeft: 12, flex: 1 }}>
-              <Text style={[styles.warningTitle, { color: '#FFF', fontSize: 18 }]}>
-                NGUY CƠ VA CHẠM (50M)
-              </Text>
               <Text style={[styles.warningText, { color: '#FFF', fontWeight: 'bold' }]}>
                 Phát hiện {buildingWarning.name} (Cao {buildingWarning.height}m).
                 Độ cao hiện tại ({currentDrone.altitude}m) không an toàn!
@@ -786,6 +814,9 @@ export default function MapViewerScreen() {
             <View style={styles.infoFlex}>
               <Text style={styles.droneModelName}>{droneModel}</Text>
               <Text style={{ color: '#4CAF50', fontWeight: 'bold' }}>{battery}% 🔋</Text>
+              <Text style={{ color: '#888', fontSize: 12 }}>
+                ⏱ {remainingFlightTime.minutes}m {remainingFlightTime.seconds}s
+              </Text>
             </View>
 
             <View style={styles.subHeaderPanel}>
@@ -882,7 +913,7 @@ const styles = StyleSheet.create({
   favHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   favTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
   favText: { fontSize: 14, color: '#555', marginBottom: 4 },
-  favInput: { borderWidth: 1, borderColor: '#DDD', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginTop: 10, marginBottom: 12, fontSize: 14, backgroundColor: '#F9F9F9' },
+  favInput: { borderWidth: 1, borderColor: '#DDD', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginTop: 10, marginBottom: 12, fontSize: 14, backgroundColor: '#dcdcdc' },
   favBtn: { backgroundColor: '#0055FF', paddingVertical: 12, borderRadius: 10, alignItems: 'center' },
   favBtnText: { color: 'white', fontWeight: 'bold', fontSize: 14 },
   heartMarker: {

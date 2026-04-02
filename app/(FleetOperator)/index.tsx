@@ -52,12 +52,12 @@ export default function FleetHomeScreen() {
         try {
           const response = await missionApi.getAll();
           const arr = Array.isArray(response) ? response : (response.data || []);
-          
+
           const enriched = await Promise.all(arr.map(async (m: any) => {
-            if (m.missionPlans) return m; 
+            if (m.missionPlans) return m;
             try {
               const detail = await missionApi.getMissionById(m._id);
-              return detail; 
+              return detail;
             } catch {
               return m;
             }
@@ -101,14 +101,25 @@ export default function FleetHomeScreen() {
 
   const handleLogout = () => {
     Alert.alert(
-      "Đăng xuất",
-      "Bạn có chắc chắn muốn thoát tài khoản?",
+      "Tùy chọn tài khoản",
+      "Bạn muốn thao tác gì tiếp theo?",
       [
-        { text: "Hủy", style: "cancel" },
+        {
+          text: "Hủy",
+          style: "cancel"
+        },
+        {
+          text: "Chuyển sang Individual",
+          onPress: () => {
+            // Chỉ chuyển hướng về trang cá nhân, không xóa dữ liệu
+            router.replace('/(tabs)');
+          }
+        },
         {
           text: "Đăng xuất",
           style: "destructive",
           onPress: async () => {
+            // Xóa dữ liệu và văng ra màn hình login
             await AsyncStorage.clear();
             router.replace('/(auth)/login');
           }
@@ -136,7 +147,7 @@ export default function FleetHomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
+
         {/* Header Section */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
@@ -148,7 +159,7 @@ export default function FleetHomeScreen() {
               <Text style={styles.userName} numberOfLines={1}>{userName}</Text>
             </View>
           </View>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.addBtn}
             activeOpacity={0.8}
             onPress={() => router.push('/(FleetOperator)/create-mission')}
@@ -185,8 +196,8 @@ export default function FleetHomeScreen() {
         {/* Action Grid */}
         <Text style={styles.sectionTitle}>Chức năng chính</Text>
         <View style={styles.actionGrid}>
-          <TouchableOpacity 
-            style={[styles.mainAction, { backgroundColor: '#FFF' }]} 
+          <TouchableOpacity
+            style={[styles.mainAction, { backgroundColor: '#FFF' }]}
             activeOpacity={0.8}
             onPress={() => router.push('/(FleetOperator)/mission-list')}
           >
@@ -195,10 +206,10 @@ export default function FleetHomeScreen() {
             </View>
             <Text style={styles.actionTitle}>Tất cả nhiệm vụ</Text>
           </TouchableOpacity>
-          
+
           <View style={styles.gridRow}>
-            <TouchableOpacity 
-              style={[styles.subAction, { backgroundColor: '#FFF', marginLeft: 0 }]} 
+            <TouchableOpacity
+              style={[styles.subAction, { backgroundColor: '#FFF', marginLeft: 0 }]}
               activeOpacity={0.8}
               onPress={() => router.push('/my-drones')}
             >
@@ -208,8 +219,8 @@ export default function FleetHomeScreen() {
               <Text style={styles.actionTitle}>Drones</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={[styles.subAction, { backgroundColor: '#FFF', marginRight: 0 }]} 
+            <TouchableOpacity
+              style={[styles.subAction, { backgroundColor: '#FFF', marginRight: 0 }]}
               activeOpacity={0.8}
               onPress={() => router.push('/(FleetOperator)/flight-plans')}
             >
@@ -245,7 +256,7 @@ export default function FleetHomeScreen() {
                 >
                   <View style={styles.recentCardContent}>
                     <Text style={styles.recentTitle} numberOfLines={1}>{missionData.name}</Text>
-                    <Text style={styles.recentDate}><Ionicons name="time-outline" size={12}/> {formatDate(missionData.updatedAt)}</Text>
+                    <Text style={styles.recentDate}><Ionicons name="time-outline" size={12} /> {formatDate(missionData.updatedAt)}</Text>
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: statusStyle.bg }]}>
                     <Text style={[styles.statusText, { color: statusStyle.color }]}>{statusStyle.text}</Text>
@@ -262,89 +273,89 @@ export default function FleetHomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
+  container: {
+    flex: 1,
     backgroundColor: '#F4F7FA', // Soft gray-blue background 
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0
   },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 40 },
 
   // Header
-  header: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    alignItems: 'center', 
-    marginTop: 15, 
-    marginBottom: 25 
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 15,
+    marginBottom: 25
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
-  avatar: { 
-    width: 50, height: 50, 
-    borderRadius: 25, 
-    backgroundColor: '#1E293B', 
+  avatar: {
+    width: 50, height: 50,
+    borderRadius: 25,
+    backgroundColor: '#1E293B',
     justifyContent: 'center', alignItems: 'center',
     marginRight: 15,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 5, elevation: 4 
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 5, elevation: 4
   },
   avatarText: { fontSize: 20, fontWeight: 'bold', color: '#FFF' },
   greetingBox: { justifyContent: 'center' },
   greetingText: { fontSize: 13, color: '#64748B', marginBottom: 2 },
   userName: { fontSize: 20, fontWeight: 'bold', color: '#0F172A', maxWidth: 200 },
-  addBtn: { 
-    width: 44, height: 44, 
-    borderRadius: 22, 
-    backgroundColor: '#3B82F6', 
-    justifyContent: 'center', alignItems: 'center', 
-    shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 5 
+  addBtn: {
+    width: 44, height: 44,
+    borderRadius: 22,
+    backgroundColor: '#3B82F6',
+    justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#3B82F6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 5
   },
 
   // Stats
-  statsContainer: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between', 
-    marginBottom: 30 
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 30
   },
-  statCard: { 
-    flex: 1, 
-    padding: 15, 
-    borderRadius: 20, 
+  statCard: {
+    flex: 1,
+    padding: 15,
+    borderRadius: 20,
     marginHorizontal: 5,
     alignItems: 'center',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 2 
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 5, elevation: 2
   },
-  statIconBox: { 
-    width: 40, height: 40, 
-    borderRadius: 20, 
-    justifyContent: 'center', alignItems: 'center', 
-    marginBottom: 10 
+  statIconBox: {
+    width: 40, height: 40,
+    borderRadius: 20,
+    justifyContent: 'center', alignItems: 'center',
+    marginBottom: 10
   },
   statValue: { fontSize: 20, fontWeight: 'bold', color: '#0F172A', marginBottom: 2 },
   statLabel: { fontSize: 12, color: '#475569', fontWeight: '500' },
 
   // Sections
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#0F172A', marginBottom: 15 },
-  
+
   // Action Grid
   actionGrid: { marginBottom: 30 },
-  mainAction: { 
-    flexDirection: 'row', 
-    alignItems: 'center', 
-    padding: 20, 
-    borderRadius: 20, 
+  mainAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    borderRadius: 20,
     marginBottom: 15,
     shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3
   },
   gridRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 15 },
-  subAction: { 
-    flex: 1, 
-    padding: 20, 
-    borderRadius: 20, 
+  subAction: {
+    flex: 1,
+    padding: 20,
+    borderRadius: 20,
     shadowColor: '#000', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3
   },
-  actionIconBox: { 
-    width: 48, height: 48, 
-    borderRadius: 16, 
-    justifyContent: 'center', alignItems: 'center', 
+  actionIconBox: {
+    width: 48, height: 48,
+    borderRadius: 16,
+    justifyContent: 'center', alignItems: 'center',
     marginRight: 15, marginBottom: 10
   },
   actionTitle: { fontSize: 15, fontWeight: '600', color: '#1E293B', flex: 1 },
@@ -354,13 +365,13 @@ const styles = StyleSheet.create({
   seeAllText: { fontSize: 14, fontWeight: '600', color: '#3B82F6' },
   recentListContainer: { paddingBottom: 20 },
   emptyText: { textAlign: 'center', color: '#94A3B8', fontStyle: 'italic', marginTop: 10 },
-  recentCard: { 
+  recentCard: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FFF', 
-    padding: 16, 
-    marginBottom: 12, 
+    backgroundColor: '#FFF',
+    padding: 16,
+    marginBottom: 12,
     borderRadius: 16,
     borderLeftWidth: 5,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2

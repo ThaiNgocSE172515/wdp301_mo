@@ -1,9 +1,9 @@
+import FavouriteApi from '@/api/favouriteApi';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import FavouriteApi from '@/api/favouriteApi';
 
 type FavouriteItem = {
   _id: string;
@@ -17,46 +17,47 @@ export default function FavouriteScreen() {
   const [favourites, setFavourites] = useState<FavouriteItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  useEffect(() => {
-    let isMounted = true;
-    const fetchFavs = async () => {
-      try {
-        setIsLoading(true);
-        const id = await AsyncStorage.getItem("USER_PROFILE_ID");
-        if (id) {
-          let userId = id;
-          try {
-            // Chỉ parse nếu là chuỗi bọc kiểu JSON, đề phòng bị SyntaxError
-            userId = JSON.parse(id);
-          } catch (e) {
-            userId = id; // Fallback directly to string
-          }
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+      const fetchFavs = async () => {
+        try {
+          setIsLoading(true);
+          const id = await AsyncStorage.getItem("USER_PROFILE_ID");
+          if (id) {
+            let userId = id;
+            try {
+              userId = JSON.parse(id);
+            } catch (e) {
+              userId = id;
+            }
 
-          const res = await FavouriteApi.get(userId);
-          const list = res?.data?.data || res?.data || res || [];
-          if (Array.isArray(list) && isMounted) {
-            const uniqueList = Array.from(new Map(list.map((item: any) => [item._id || JSON.stringify(item), item])).values());
-            setFavourites(uniqueList as FavouriteItem[]);
-          } else {
-             alert('Không thể nhận diện danh sách: ' + JSON.stringify(list).substring(0, 100));
+            const res = await FavouriteApi.get(userId);
+            const list = res?.data?.data || res?.data || res || [];
+            if (Array.isArray(list) && isMounted) {
+              const uniqueList = Array.from(new Map(list.map((item: any) => [item._id || JSON.stringify(item), item])).values());
+              setFavourites(uniqueList as FavouriteItem[]);
+            } else {
+              alert('Không thể nhận diện danh sách: ' + JSON.stringify(list).substring(0, 100));
+            }
           }
-        }
-      } catch (error: any) {
-        console.error("Lỗi lấy danh sách:", error);
-        
-        let msg = error?.message || "Lỗi không xác định";
-        if (error.response) {
+        } catch (error: any) {
+          console.error("Lỗi lấy danh sách:", error);
+          let msg = error?.message || "Lỗi không xác định";
+          if (error.response) {
             msg = `Mã lỗi: ${error.response.status}. Chi tiết: ${JSON.stringify(error.response.data)}`;
+          }
+          alert("Lỗi lấy dữ liệu: " + msg);
+        } finally {
+          if (isMounted) setIsLoading(false);
         }
-        alert("Lỗi lấy dữ liệu: " + msg);
-      } finally {
-        if (isMounted) setIsLoading(false);
-      }
-    };
+      };
 
-    fetchFavs();
-    return () => { isMounted = false; };
-  }, []);
+      fetchFavs();
+
+      return () => { isMounted = false; };
+    }, [])
+  );
 
   const handlePressItem = (item: any) => {
     let lat: number | undefined;
@@ -118,7 +119,7 @@ export default function FavouriteScreen() {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Địa Điểm Yêu Thích</Text>
       </View>
-      
+
       {isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#0055FF" />

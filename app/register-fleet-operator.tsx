@@ -51,7 +51,7 @@ const RegisterFleetOperator = () => {
     }, [])
 
     const startPolling = () => {
-        if (pollingRef.current) return; // đã polling rồi thì bỏ qua
+        if (pollingRef.current) return;
         pollingRef.current = setInterval(async () => {
             try {
                 const res = await fetch(`${API_URL}/auth/profile`, {
@@ -124,7 +124,7 @@ const RegisterFleetOperator = () => {
                     </Text>
 
                     <TouchableOpacity style={styles.primaryBtn} onPress={() => router.replace('/(FleetOperator)')}>
-                        <Text style={styles.btnText}>Đến bộ đàm Fleet Operator</Text>
+                        <Text style={styles.btnText}>Đến Trang Fleet Operator</Text>
                         <Ionicons name="arrow-forward" size={20} color="#fff" />
                     </TouchableOpacity>
                 </View>
@@ -394,6 +394,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         backgroundColor: '#0055FF', // Xanh dương chủ đạo thay vì đen
         paddingVertical: 16,
+        paddingHorizontal: 20,
         borderRadius: 16,
         justifyContent: 'center',
         alignItems: 'center',
