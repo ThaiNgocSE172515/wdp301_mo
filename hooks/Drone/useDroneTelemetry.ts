@@ -18,7 +18,7 @@ export const useDroneTelemetry = (
 ) => {
   const [drones, setDrones] = useState<Record<string, any>>({});
   const [battery, setBattery] = useState(100);
-  const [warningZone, setWarningZone] = useState<{ name: string, type: string, status: 'inside' | 'near' } | null>(null);
+  const [warningZone, setWarningZone] = useState<{ id: string, name: string, type: string, status: 'inside' | 'near' } | null>(null);
   const [buildingWarning, setBuildingWarning] = useState<{ isColliding: boolean, height: number, name: string } | null>(null);
   const [droneWarning, setDroneWarning] = useState<{ isColliding: boolean, droneId: string, distance: number } | null>(null);
 
@@ -71,12 +71,12 @@ export const useDroneTelemetry = (
               if (droneAlt <= (zone.maxAltitude || 120) && zone.geometry?.coordinates) {
                 const polygon = turf.polygon(zone.geometry.coordinates);
                 if (turf.booleanPointInPolygon(dronePoint, polygon as any)) {
-                  currentWarning = { name: zone.name, type: zone.type, status: 'inside' };
+                  currentWarning = { id: zone._id || zone.id, name: zone.name, type: zone.type, status: 'inside' };
                   break;
                 }
                 const buffered = turf.buffer(polygon, 0.5, { units: 'kilometers' });
                 if (buffered && turf.booleanPointInPolygon(dronePoint, buffered)) {
-                  currentWarning = { name: zone.name, type: zone.type, status: 'near' };
+                  currentWarning = { id: zone._id || zone.id, name: zone.name, type: zone.type, status: 'near' };
                 }
               }
             } catch (e) {}

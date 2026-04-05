@@ -2,6 +2,7 @@ import { useDroneSession } from '@/hooks/Drone/useDroneSession';
 import { useDroneTelemetry } from '@/hooks/Drone/useDroneTelemetry';
 import { useCreateFavourite } from '@/hooks/Favourites/useCreateFavourite';
 import { useGetFavourites } from '@/hooks/Favourites/useGetFavourites';
+import { useZoneDetail } from '@/hooks/Zone/useZoneDetail'; // <-- THÊM: Import hook chi tiết zone
 import { useZones } from '@/hooks/Zone/useZones';
 import { Ionicons } from '@expo/vector-icons';
 import Mapbox from "@rnmapbox/maps";
@@ -37,6 +38,7 @@ export default function MapViewerScreen() {
   // --- GỌI HOOKS LOGIC ---
   const { simulatorDroneId, droneModel, isEnding, handleEndFlight } = useDroneSession(connectedMongoId, sessionId);
   const { zones, zonesRef } = useZones(connectedMongoId, sessionId);
+  const { zoneDetail, fetchZoneDetail, clearZoneDetail } = useZoneDetail(); // <-- THÊM: Gọi hook
   const { userId, favouritesList, setFavouritesList } = useGetFavourites();
   const { isSavingFav, createFavourite } = useCreateFavourite();
   
@@ -61,7 +63,16 @@ export default function MapViewerScreen() {
     if (buildingWarning || droneWarning) setIsWarningExpanded(true);
   }, [buildingWarning?.name, droneWarning?.droneId]);
 
-  // --- LOGIC HIỂN THỊ (TRẢ LẠI 100% NHƯ CŨ) ---
+  // <-- THÊM: Effect tự động fetch data chi tiết khi dính cảnh báo Zone
+  useEffect(() => {
+    if (warningZone && warningZone.id) {
+      fetchZoneDetail(warningZone.id);
+    } else {
+      clearZoneDetail();
+    }
+  }, [warningZone?.id, fetchZoneDetail]);
+
+  // --- LOGIC HIỂN THỊ ---
   const currentDrone = drones[simulatorDroneId] || { speed: 0, altitude: 0, heading: 0, batteryLevel: 100, lng: 106.81809, lat: 10.82615 };
 
   const remainingFlightTime = useMemo(() => {
@@ -97,6 +108,19 @@ export default function MapViewerScreen() {
     return turf.featureCollection(zones.map(z => turf.feature(z.geometry, { type: z.type, name: z.name })));
   }, [zones]);
 
+  // <-- THÊM: Tìm tọa độ tâm của zone đang được cảnh báo để hiển thị tooltip trên Map
+  const activeZoneCenter = useMemo(() => {
+    if (zoneDetail && zoneDetail.geometry) {
+      try {
+        const center = turf.centroid(zoneDetail.geometry);
+        return center.geometry.coordinates;
+      } catch (error) {
+        return null;
+      }
+    }
+    return null;
+  }, [zoneDetail]);
+
   return (
     <View style={styles.container}>
       <StatusBar translucent barStyle="light-content" backgroundColor="transparent" />
@@ -107,7 +131,7 @@ export default function MapViewerScreen() {
         </TouchableOpacity>
       )}
 
-      {/* RENDER BANNERS CẢNH BÁO (GIỮ ĐÚNG UI GỐC) */}
+      {/* RENDER BANNERS CẢNH BÁO */}
       {isActiveFlight && droneWarning && (
         isWarningExpanded ? (
           <View style={[styles.warningBanner, { backgroundColor: '#9C27B0', top: (warningZone || buildingWarning) ? 180 : 110, borderWidth: 2, borderColor: '#FFF' }]}>
@@ -124,14 +148,22 @@ export default function MapViewerScreen() {
         )
       )}
 
-      {isActiveFlight && warningZone && (
-        <View style={[styles.warningBanner, { paddingVertical: 8, backgroundColor: warningZone.status === 'inside' ? (warningZone.type === 'no_fly' ? 'rgba(255,59,48,0.95)' : 'rgba(255,204,0,0.95)') : 'rgba(255,149,0,0.95)' }]}>
-          <Ionicons name={warningZone.status === 'inside' ? "warning" : "alert-circle"} size={22} color={(warningZone.status === 'inside' && warningZone.type === 'no_fly') ? '#FFF' : '#333'} />
+      {/* <-- SỬA: CHỈ HIỆN BANNER KHI ĐÃ BAY VÀO TRONG (INSIDE) --> */}
+      {isActiveFlight && warningZone && warningZone.status === 'inside' && (
+        <View style={[styles.warningBanner, { paddingVertical: 8, backgroundColor: warningZone.type === 'no_fly' ? 'rgba(255,59,48,0.95)' : 'rgba(255,204,0,0.95)' }]}>
+          <Ionicons name="warning" size={22} color={warningZone.type === 'no_fly' ? '#FFF' : '#333'} />
           <View style={{ marginLeft: 10, flex: 1 }}>
-            <Text style={[styles.warningText, { fontSize: 14, fontWeight: 'bold', color: (warningZone.status === 'inside' && warningZone.type === 'no_fly') ? '#FFF' : '#333' }]}>
-              {warningZone.status === 'inside' ? `VI PHẠM: ${warningZone.name}` : `CÁCH VÙNG HẠN CHẾ/VÙNG CẤM (${warningZone.name}) < 500m`}
+            <Text style={[styles.warningText, { fontSize: 14, fontWeight: 'bold', color: warningZone.type === 'no_fly' ? '#FFF' : '#333' }]}>
+              VI PHẠM: {warningZone.name}
             </Text>
           </View>
+        </View>
+      )}
+
+      {/* <-- THÊM MỚI: ICON NHỎ GÓC PHẢI KHI CÁCH < 500m (NEAR) --> */}
+      {isActiveFlight && warningZone && warningZone.status === 'near' && (
+        <View style={styles.nearWarningIcon}>
+          <Ionicons name="alert-circle" size={28} color="#333" />
         </View>
       )}
 
@@ -161,6 +193,17 @@ export default function MapViewerScreen() {
           <Mapbox.ShapeSource id="zones-source" shape={zonesGeoJSON as any}>
             <Mapbox.FillLayer id="zones-fill" style={{ fillColor: ["match", ["get", "type"], "no_fly", "rgba(255, 59, 48, 0.4)", "restricted", "rgba(255, 204, 0, 0.4)", "rgba(0,0,0,0.1)"], fillOutlineColor: ["match", ["get", "type"], "no_fly", "#FF3B30", "restricted", "#FFCC00", "#000"] }} />
           </Mapbox.ShapeSource>
+        )}
+
+        {/* <-- THÊM: RENDER THÔNG TIN CHI TIẾT ZONE LÊN MAP NGAY TẠI TÂM VÙNG CẤM --> */}
+        {activeZoneCenter && zoneDetail && (
+          <Mapbox.MarkerView id="zone-detail-marker" coordinate={activeZoneCenter}>
+            <View style={styles.zoneDetailMapBox}>
+              <Text style={styles.zoneDetailMapTitle}>{zoneDetail.name}</Text>
+              <Text style={styles.zoneDetailMapText}>Độ cao: {zoneDetail.minAltitude}m - {zoneDetail.maxAltitude}m</Text>
+              <Text style={styles.zoneDetailMapText}>Hiệu lực từ: {new Date(zoneDetail.effectiveFrom).toLocaleDateString('vi-VN')}</Text>
+            </View>
+          </Mapbox.MarkerView>
         )}
 
         {dronesGeoJSON && (
@@ -215,7 +258,6 @@ export default function MapViewerScreen() {
             <View style={styles.telemetryRow}>
               <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.speed}</Text><Text style={styles.telemetryLabel}>Tốc độ</Text></View>
               <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.altitude}</Text><Text style={styles.telemetryLabel}>Độ cao</Text></View>
-              {/* PHỤC HỒI HƯỚNG BAY (HEADING) */}
               <View style={styles.telemetryBox}><Text style={styles.telemetryValue}>{currentDrone.heading}°</Text><Text style={styles.telemetryLabel}>Hướng</Text></View>
             </View>
 
@@ -277,5 +319,43 @@ const styles = StyleSheet.create({
   minimizePanelIcon: { alignItems: 'center', marginTop: -10, marginBottom: 5 },
   minimizedPanel: { position: 'absolute', right: 5, top: '45%', backgroundColor: 'rgba(255, 255, 255, 0.95)', padding: 10, borderRadius: 12, zIndex: 10, elevation: 6 },
   minimizedText: { fontSize: 12, fontWeight: 'bold', color: '#333', marginVertical: 2 },
-  minimizedWarningBtn: { position: 'absolute', top: 110, right: 20, backgroundColor: '#FF0000', width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', zIndex: 10, elevation: 8, borderWidth: 2, borderColor: '#FFF' }
+  minimizedWarningBtn: { position: 'absolute', top: 110, right: 20, backgroundColor: '#FF0000', width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', zIndex: 10, elevation: 8, borderWidth: 2, borderColor: '#FFF' },
+  zoneDetailMapBox: {
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FFF',
+    alignItems: 'center',
+    width: 150,
+  },
+  zoneDetailMapTitle: {
+    color: '#FFF',
+    fontWeight: 'bold',
+    fontSize: 12,
+    marginBottom: 4,
+    textAlign: 'center'
+  },
+  zoneDetailMapText: {
+    color: '#FFF',
+    fontSize: 10,
+    textAlign: 'center',
+    marginBottom: 2
+  },
+  // <-- THÊM MỚI DUY NHẤT VÀO STYLE: Nút vàng bo tròn góc phải cho cảnh báo <500m -->
+  nearWarningIcon: {
+    position: 'absolute', 
+    top: 110, 
+    right: 20, 
+    backgroundColor: 'rgba(255,149,0,0.95)', 
+    width: 50, 
+    height: 50, 
+    borderRadius: 25, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    zIndex: 10, 
+    elevation: 8, 
+    borderWidth: 2, 
+    borderColor: '#FFF'
+  }
 });
