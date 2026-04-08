@@ -4,7 +4,7 @@ import zoneApi from '@/api/zoneApi';
 import { Ionicons } from '@expo/vector-icons';
 import Mapbox from "@rnmapbox/maps";
 import * as turf from '@turf/turf';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -61,7 +61,7 @@ export default function CreateFlightPlanScreen() {
         console.error("Lỗi tải zone:", err);
       }
     };
-    
+
     const fetchFlightPlanDetails = async () => {
       if (!id) return;
       try {
@@ -103,7 +103,7 @@ export default function CreateFlightPlanScreen() {
 
     let warningZone = null;
     let lineSegment: any = null;
-    
+
     if (waypoints.length > 0) {
       const lastWp = waypoints[waypoints.length - 1];
       lineSegment = turf.lineString([[lastWp.longitude, lastWp.latitude], coords]);
@@ -114,11 +114,11 @@ export default function CreateFlightPlanScreen() {
         try {
           const isPointInside = turf.booleanPointInPolygon(point, z.geometry as any);
           let isLineIntersecting = false;
-          
+
           if (lineSegment) {
-              isLineIntersecting = turf.booleanIntersects(lineSegment, z.geometry as any);
+            isLineIntersecting = turf.booleanIntersects(lineSegment, z.geometry as any);
           }
-          
+
           if (isPointInside || isLineIntersecting) {
             warningZone = z;
             break;
@@ -142,8 +142,8 @@ export default function CreateFlightPlanScreen() {
       {
         longitude: coords[0],
         latitude: coords[1],
-        altitude: prev.length === 0 ? 30 : 50, // default takeoff altitude 30, flight alt 50
-        speed: 10, // Default speed 10 m/s
+        altitude: prev.length === 0 ? 30 : 50,
+        speed: 22, // Default speed 22 m/s
         action: prev.length === 0 ? 'TAKEOFF' : 'WAYPOINT'
       }
     ]);
@@ -157,6 +157,43 @@ export default function CreateFlightPlanScreen() {
     setWaypoints([]);
   };
 
+
+  const flightEstimates = useMemo(() => {
+    if (waypoints.length < 2) return { time: 0, battery: 0 };
+
+    let totalTimeSeconds = 0;
+    let distance = 0;
+
+    for (let i = 1; i < waypoints.length; i++) {
+      const prevWp = waypoints[i - 1];
+      const currWp = waypoints[i];
+
+      const fromPoint = turf.point([prevWp.longitude, prevWp.latitude]);
+      const toPoint = turf.point([currWp.longitude, currWp.latitude]);
+      const horizontalDist = turf.distance(fromPoint, toPoint, { units: 'kilometers' }) * 1000;
+
+      const verticalDist = Math.abs(currWp.altitude - prevWp.altitude);
+      const segmentDistance = Math.sqrt(Math.pow(horizontalDist, 2) + Math.pow(verticalDist, 2));
+
+      const speed = currWp.speed > 0 ? currWp.speed : 22;
+
+      totalTimeSeconds += segmentDistance / speed;
+      distance += horizontalDist;
+    }
+
+    totalTimeSeconds += 30;
+
+    const timeMinutes = Math.ceil(totalTimeSeconds / 60);
+    const MAX_DRONE_FLIGHT_TIME = 30; // Thay đổi tùy theo thông số Drone
+    const batteryPercent = Math.ceil((timeMinutes / MAX_DRONE_FLIGHT_TIME) * 100);
+
+    return {
+      time: timeMinutes,
+      battery: batteryPercent,
+      distance: distance
+    };
+  }, [waypoints]);
+
   const handleCreate = async () => {
     if (waypoints.length < 2) {
       Alert.alert("Lỗi", "Cần ít nhất 2 điểm (TAKEOFF và WAYPOINT/LAND) để tạo kế hoạch bay");
@@ -167,9 +204,16 @@ export default function CreateFlightPlanScreen() {
       return;
     }
 
-    // Prepare waypoints array according to payload requirements
+    if (flightEstimates.battery > 100) {
+      Alert.alert(
+        "Cảnh báo an toàn",
+        `Lộ trình này quá dài! Ước tính tiêu thụ ${flightEstimates.battery}% pin. Vui lòng rút ngắn lộ trình.`
+      );
+      return;
+    }
+
     const formattedWaypoints = waypoints.map((wp, index) => {
-      // Automatically make the last point LAND if > 1 points
+
       let finalAction = wp.action;
       if (index === waypoints.length - 1 && index > 0) {
         finalAction = 'LAND';
@@ -181,7 +225,7 @@ export default function CreateFlightPlanScreen() {
         longitude: wp.longitude,
         altitude: wp.altitude,
         speed: wp.speed,
-        estimatedTime: new Date(Date.now() + index * 10 * 60000).toISOString(), // Stubbed times
+        estimatedTime: new Date(Date.now() + index * 10 * 60000).toISOString(),
         action: finalAction
       };
     });
@@ -190,7 +234,9 @@ export default function CreateFlightPlanScreen() {
       notes: formData.notes,
       drone: formData.drone,
       priority: formData.priority,
-      waypoints: formattedWaypoints
+      waypoints: formattedWaypoints,
+      batteryPercentageUsed: flightEstimates.battery,
+      estimatedFlightTime: flightEstimates.time
     };
 
     try {
@@ -233,20 +279,20 @@ export default function CreateFlightPlanScreen() {
         return { centerCoordinate: [waypoints[0].longitude, waypoints[0].latitude], zoomLevel: 14 };
       }
     }
-    
+
     if (zones.length > 0) {
       try {
         const firstZone = zones[0];
         if (firstZone.geometry) {
-           // Provide a wider view of the restricted areas
-           const center = turf.center(firstZone.geometry as any);
-           return { centerCoordinate: center.geometry.coordinates, zoomLevel: 11 };
+          // Provide a wider view of the restricted areas
+          const center = turf.center(firstZone.geometry as any);
+          return { centerCoordinate: center.geometry.coordinates, zoomLevel: 11 };
         }
       } catch (e) {
         // ignore
       }
     }
-    
+
     return { centerCoordinate: [106.6297, 10.8231], zoomLevel: 14 }; // HCM default
   }, [waypoints, zones]);
 
@@ -297,8 +343,8 @@ export default function CreateFlightPlanScreen() {
                 fillColor: [
                   "match",
                   ["get", "type"],
-                  "no_fly", "rgba(255, 59, 48, 0.4)",      
-                  "restricted", "rgba(255, 204, 0, 0.4)", 
+                  "no_fly", "rgba(255, 59, 48, 0.4)",
+                  "restricted", "rgba(255, 204, 0, 0.4)",
                   "rgba(0,0,0,0.1)"
                 ],
                 fillOutlineColor: [
@@ -431,9 +477,20 @@ export default function CreateFlightPlanScreen() {
           {activeTab === 'MAP' ? (
             <>
               {!isMapFullscreen && renderMapBox(false)}
-              <Text style={{ fontSize: 12, color: '#888', marginTop: 5, fontStyle: 'italic' }}>
-                * Điểm 1 sẽ tự động set là TAKEOFF, điểm cuối tự động set là LAND.
-              </Text>
+              <View style={styles.flightEstimatesList}>
+                <View style={styles.flightEstimatesItem}>
+                  <Text style={styles.flightEstimatesTitle}>Thời gian dự kiên</Text>
+                  <Text style={styles.flightEstimatesInfo}>{flightEstimates.time} phút</Text>
+                </View>
+                <View style={styles.flightEstimatesItem}>
+                  <Text style={styles.flightEstimatesTitle}>pin dự kiên</Text>
+                  <Text style={styles.flightEstimatesInfo}>{flightEstimates.battery} %</Text>
+                </View>
+                <View style={styles.flightEstimatesItem}>
+                  <Text style={styles.flightEstimatesTitle}>Khoảng cách</Text>
+                  <Text style={styles.flightEstimatesInfo}>{(flightEstimates.distance! / 1000).toFixed(2)} km</Text>
+                </View>
+              </View>
             </>
           ) : (
             <View style={{ minHeight: SCREEN_HEIGHT * 0.45, backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: '#DDD', padding: 15 }}>
@@ -528,7 +585,20 @@ export default function CreateFlightPlanScreen() {
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#EEE' }}>
               <View>
                 <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1F222A' }}>Chạm để đặt điểm bay</Text>
-                <Text style={{ fontSize: 13, color: '#0055FF', fontWeight: 'bold' }}>{waypoints.length} Điểm</Text>
+                <View style={{ display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "space-around" }}>
+                  <View style={{ display: "flex", flexDirection: "row", gap: 5 }}>
+                    <Text>Pin cần thiết để bay: </Text>
+                    <Text style={{ fontSize: 13, color: '#0055FF', fontWeight: 'bold' }}>{flightEstimates.battery} %</Text>
+                  </View>
+                  <View style={{ display: "flex", flexDirection: "row", gap: 5 }}>
+                    <Text>Khoảng cách dự kiến: </Text>
+                    <Text style={{ fontSize: 13, color: '#0055FF', fontWeight: 'bold' }}>{((flightEstimates.distance ?? 0) / 1000).toFixed(2)} km</Text>
+                  </View>
+                  <View style={{ display: "flex", flexDirection: "row", gap: 5 }}>
+                    <Text>Thời gian bay dự kiên: </Text>
+                    <Text style={{ fontSize: 13, color: '#0055FF', fontWeight: 'bold' }}>{flightEstimates.time} phút bay</Text>
+                  </View>
+                </View>
               </View>
               <TouchableOpacity onPress={() => setIsMapFullscreen(false)}>
                 <Ionicons name="contract" size={28} color="#333" />
@@ -638,5 +708,9 @@ const styles = StyleSheet.create({
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 30 },
-  droneItem: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }
+  droneItem: { flexDirection: 'row', alignItems: 'center', padding: 15, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  flightEstimatesList: { display: "flex", flexDirection: "row", justifyContent: "space-between", alignItems: "stretch", marginTop: 20, marginHorizontal: 10 },
+  flightEstimatesItem: { display: "flex", alignItems: "center" },
+  flightEstimatesTitle: { fontStyle: "italic", fontWeight: "500", fontSize: 15 },
+  flightEstimatesInfo: { fontWeight: "400", fontSize: 15 },
 });
