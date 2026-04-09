@@ -171,8 +171,9 @@ export default function CreateFlightPlanScreen() {
       const fromPoint = turf.point([prevWp.longitude, prevWp.latitude]);
       const toPoint = turf.point([currWp.longitude, currWp.latitude]);
       const horizontalDist = turf.distance(fromPoint, toPoint, { units: 'kilometers' }) * 1000;
-
+      
       const verticalDist = Math.abs(currWp.altitude - prevWp.altitude);
+
       const segmentDistance = Math.sqrt(Math.pow(horizontalDist, 2) + Math.pow(verticalDist, 2));
 
       const speed = currWp.speed > 0 ? currWp.speed : 22;
@@ -184,7 +185,10 @@ export default function CreateFlightPlanScreen() {
     totalTimeSeconds += 30;
 
     const timeMinutes = Math.ceil(totalTimeSeconds / 60);
+
     const MAX_DRONE_FLIGHT_TIME = 30; // Thay đổi tùy theo thông số Drone
+
+
     const batteryPercent = Math.ceil((timeMinutes / MAX_DRONE_FLIGHT_TIME) * 100);
 
     return {
@@ -200,7 +204,7 @@ export default function CreateFlightPlanScreen() {
       return;
     }
     if (!formData.drone) {
-      Alert.alert("Lỗi", "Vui lòng chọn Drone thực hiện");
+      Alert.alert("Lỗi", "Vui lòng chọn Drone thực hiện")
       return;
     }
 
