@@ -2,10 +2,10 @@ import { useDroneSession } from '@/hooks/Drone/useDroneSession';
 import { useDroneTelemetry } from '@/hooks/Drone/useDroneTelemetry';
 import { useCreateFavourite } from '@/hooks/Favourites/useCreateFavourite';
 import { useGetFavourites } from '@/hooks/Favourites/useGetFavourites';
-import { useZoneDetail } from '@/hooks/Zone/useZoneDetail'; // <-- THÊM: Import hook chi tiết zone
+import { useZoneDetail } from '@/hooks/Zone/useZoneDetail';
 import { useZones } from '@/hooks/Zone/useZones';
 import { Ionicons } from '@expo/vector-icons';
-import Mapbox, { MapView } from "@rnmapbox/maps";
+import Mapbox from "@rnmapbox/maps";
 import * as turf from '@turf/turf';
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
@@ -57,9 +57,12 @@ export default function MapViewerScreen() {
     }
   }, [favLat, favLng, mapReady]);
 
+  // Tự động mở rộng cảnh báo khi có cảnh báo mới
   useEffect(() => {
-    if (buildingWarning || droneWarning) setIsWarningExpanded(true);
-  }, [buildingWarning?.name, droneWarning?.droneId]);
+    if (buildingWarning || droneWarning || warningZone) {
+      setIsWarningExpanded(true);
+    }
+  }, [buildingWarning?.name, droneWarning?.droneId, warningZone?.id]);
 
 
   useEffect(() => {
@@ -117,6 +120,17 @@ export default function MapViewerScreen() {
     return null;
   }, [zoneDetail]);
 
+  // Xác định xem có bất kỳ cảnh báo nào không để quyết định render
+  const hasAnyWarning = warningZone || buildingWarning || droneWarning;
+
+  // Lấy vị trí của drone khác đang gây cảnh báo (để vẽ Marker trên bản đồ)
+  const warningDroneLocation = useMemo(() => {
+    if (droneWarning && drones[droneWarning.droneId]) {
+      return [Number(drones[droneWarning.droneId].lng), Number(drones[droneWarning.droneId].lat)];
+    }
+    return null;
+  }, [droneWarning, drones]);
+
   return (
     <View style={styles.container}>
       <StatusBar translucent barStyle="light-content" backgroundColor="transparent" />
@@ -127,50 +141,80 @@ export default function MapViewerScreen() {
         </TouchableOpacity>
       )}
 
-      {isActiveFlight && droneWarning && (
+      {/* HỆ THỐNG CẢNH BÁO TẬP TRUNG */}
+      {isActiveFlight && hasAnyWarning && (
         isWarningExpanded ? (
-          <View style={[styles.warningBanner, { backgroundColor: '#9C27B0', top: (warningZone || buildingWarning) ? 180 : 110, borderWidth: 2, borderColor: '#FFF' }]}>
-            <Ionicons name="warning" size={28} color="#FFF" />
-            <View style={{ marginLeft: 12, flex: 1 }}>
-              <Text style={[styles.warningText, { color: '#FFF', fontWeight: 'bold' }]}>Có 1 Drone khác đang ở rất gần! Cách bạn {droneWarning.distance}m.</Text>
-            </View>
-            <TouchableOpacity onPress={() => setIsWarningExpanded(false)} style={{ padding: 4 }}><Ionicons name="close" size={26} color="#FFF" /></TouchableOpacity>
+          <View style={styles.warningsContainer}>
+            
+            {/* Cảnh báo Drone Khác */}
+            {droneWarning && (
+              <View style={[styles.warningBanner, { backgroundColor: '#9C27B0' }]}>
+                <Ionicons name="warning" size={28} color="#FFF" />
+                <View style={{ marginLeft: 12, flex: 1 }}>
+                  <Text style={[styles.warningText, { color: '#FFF', fontWeight: 'bold' }]}>
+                    CẢNH BÁO: Có 1 Drone khác đang ở rất gần! Cách bạn {droneWarning.distance}m.
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setIsWarningExpanded(false)} style={{ padding: 4 }}>
+                  <Ionicons name="close" size={26} color="#FFF" />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Cảnh báo Tòa nhà */}
+            {buildingWarning && (
+              <View style={[styles.warningBanner, { backgroundColor: '#FF0000' }]}>
+                <Ionicons name="flash" size={28} color="#FFF" />
+                <View style={{ marginLeft: 12, flex: 1 }}>
+                  <Text style={[styles.warningText, { color: '#FFF', fontWeight: 'bold' }]}>
+                    NGUY HIỂM: {buildingWarning.name} (Cao {buildingWarning.height}m). Độ cao hiện tại ({currentDrone.altitude}m) không an toàn!
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setIsWarningExpanded(false)} style={{ padding: 4 }}>
+                  <Ionicons name="close" size={26} color="#FFF" />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Cảnh báo Vùng bay (Bên trong) */}
+            {warningZone && warningZone.status === 'inside' && (
+              <View style={[styles.warningBanner, { backgroundColor: warningZone.type === 'no_fly' ? 'rgba(255,59,48,0.95)' : 'rgba(255,204,0,0.95)' }]}>
+                <Ionicons name="warning" size={22} color={warningZone.type === 'no_fly' ? '#FFF' : '#333'} />
+                <View style={{ marginLeft: 10, flex: 1 }}>
+                  <Text style={[styles.warningText, { fontSize: 14, fontWeight: 'bold', color: warningZone.type === 'no_fly' ? '#FFF' : '#333' }]}>
+                    VI PHẠM: {warningZone.name}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setIsWarningExpanded(false)} style={{ padding: 4 }}>
+                  <Ionicons name="close" size={24} color={warningZone.type === 'no_fly' ? '#FFF' : '#333'} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Cảnh báo Vùng bay (Đến gần) */}
+            {warningZone && warningZone.status === 'near' && (
+              <View style={[styles.warningBanner, { backgroundColor: 'rgba(255,149,0,0.95)' }]}>
+                <Ionicons name="alert-circle" size={24} color="#FFF" />
+                <View style={{ marginLeft: 10, flex: 1 }}>
+                  <Text style={[styles.warningText, { color: '#FFF', fontWeight: 'bold' }]}>
+                    CHÚ Ý: Bạn đang đến gần vùng {warningZone.name}.
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={() => setIsWarningExpanded(false)} style={{ padding: 4 }}>
+                  <Ionicons name="close" size={24} color="#FFF" />
+                </TouchableOpacity>
+              </View>
+            )}
+            
           </View>
         ) : (
-          <TouchableOpacity style={[styles.minimizedWarningBtn, { backgroundColor: '#9C27B0', top: (warningZone || buildingWarning) ? 180 : 110 }]} onPress={() => setIsWarningExpanded(true)}>
-            <Ionicons name="warning" size={28} color="#FFF" />
+          // Nút thu gọn cảnh báo chung ở góc phải
+          <TouchableOpacity style={styles.minimizedWarningBtn} onPress={() => setIsWarningExpanded(true)}>
+            <Ionicons name={warningZone?.status === 'near' ? "alert-circle" : "warning"} size={28} color="#FFF" />
+            <View style={styles.warningBadge}>
+              <Text style={styles.warningBadgeText}>!</Text>
+            </View>
           </TouchableOpacity>
-        )
-      )}
-
-      {isActiveFlight && warningZone && warningZone.status === 'inside' && (
-        <View style={[styles.warningBanner, { paddingVertical: 8, backgroundColor: warningZone.type === 'no_fly' ? 'rgba(255,59,48,0.95)' : 'rgba(255,204,0,0.95)' }]}>
-          <Ionicons name="warning" size={22} color={warningZone.type === 'no_fly' ? '#FFF' : '#333'} />
-          <View style={{ marginLeft: 10, flex: 1 }}>
-            <Text style={[styles.warningText, { fontSize: 14, fontWeight: 'bold', color: warningZone.type === 'no_fly' ? '#FFF' : '#333' }]}>
-              VI PHẠM: {warningZone.name}
-            </Text>
-          </View>
-        </View>
-      )}
-
-      {isActiveFlight && warningZone && warningZone.status === 'near' && (
-        <View style={styles.nearWarningIcon}>
-          <Ionicons name="alert-circle" size={28} color="#333" />
-        </View>
-      )}
-
-      {isActiveFlight && buildingWarning && (
-        isWarningExpanded ? (
-          <View style={[styles.warningBanner, { backgroundColor: '#FF0000', top: warningZone ? 180 : 110, borderWidth: 2, borderColor: '#FFF' }]}>
-            <Ionicons name="flash" size={28} color="#FFF" />
-            <View style={{ marginLeft: 12, flex: 1 }}>
-              <Text style={[styles.warningText, { color: '#FFF', fontWeight: 'bold' }]}>Phát hiện {buildingWarning.name} (Cao {buildingWarning.height}m). Độ cao hiện tại ({currentDrone.altitude}m) không an toàn!</Text>
-            </View>
-            <TouchableOpacity onPress={() => setIsWarningExpanded(false)} style={{ padding: 4 }}><Ionicons name="close" size={26} color="#FFF" /></TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity style={styles.minimizedWarningBtn} onPress={() => setIsWarningExpanded(true)}><Ionicons name="warning" size={28} color="#FFF" /></TouchableOpacity>
         )
       )}
 
@@ -188,6 +232,19 @@ export default function MapViewerScreen() {
           </Mapbox.ShapeSource>
         )}
 
+        {/* THÊM MARKER KHOẢNG CÁCH TRỰC TIẾP TRÊN BẢN ĐỒ KHI CÓ CẢNH BÁO */}
+        
+        {/* Label hiển thị trên Drone khác */}
+        {warningDroneLocation && droneWarning && (
+          <Mapbox.MarkerView id="drone-warning-marker" coordinate={warningDroneLocation}>
+            <View style={[styles.zoneDetailMapBox, { backgroundColor: 'rgba(156, 39, 176, 0.8)' }]}>
+              <Text style={styles.zoneDetailMapTitle}>CẢNH BÁO VA CHẠM</Text>
+              <Text style={styles.zoneDetailMapText}>Cách bạn: {droneWarning.distance}m</Text>
+            </View>
+          </Mapbox.MarkerView>
+        )}
+
+        {/* Label hiển thị trên Zone */}
         {activeZoneCenter && zoneDetail && (
           <Mapbox.MarkerView id="zone-detail-marker" coordinate={activeZoneCenter}>
             <View style={styles.zoneDetailMapBox}>
@@ -226,7 +283,7 @@ export default function MapViewerScreen() {
         <Ionicons name="locate" size={24} color="#0055FF" />
       </TouchableOpacity>
 
-      {/* RENDER BOTTOM PANEL (TRẢ LẠI 100% CÁC THÔNG SỐ ĐÃ MẤT) */}
+      {/* BOTTOM PANEL */}
       {isActiveFlight && (
         isPanelExpanded ? (
           <View style={styles.bottomPanel}>
@@ -287,8 +344,11 @@ const styles = StyleSheet.create({
   map: { flex: 1 },
   backBtn: { position: 'absolute', top: 50, left: 20, zIndex: 10, backgroundColor: 'white', padding: 10, borderRadius: 20, elevation: 5 },
   locateBtn: { position: 'absolute', bottom: 100, right: 20, zIndex: 10, backgroundColor: 'white', padding: 12, borderRadius: 30, elevation: 6 },
-  warningBanner: { position: 'absolute', top: 110, left: 20, right: 20, zIndex: 10, flexDirection: 'row', alignItems: 'center', padding: 15, borderRadius: 12, elevation: 8 },
+  
+  warningsContainer: { position: 'absolute', top: 110, left: 20, right: 20, zIndex: 10, gap: 10 },
+  warningBanner: { flexDirection: 'row', alignItems: 'center', padding: 15, borderRadius: 12, elevation: 8, borderWidth: 2, borderColor: '#FFF' },
   warningText: { fontSize: 13, fontWeight: '500' },
+  
   bottomPanel: { position: 'absolute', bottom: 20, left: 20, right: 20, backgroundColor: 'white', borderRadius: 20, padding: 20, elevation: 10 },
   droneModelName: { fontSize: 18, fontWeight: 'bold', color: '#1F222A', marginBottom: 5 },
   subHeaderPanel: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 15 },
@@ -311,7 +371,12 @@ const styles = StyleSheet.create({
   minimizePanelIcon: { alignItems: 'center', marginTop: -10, marginBottom: 5 },
   minimizedPanel: { position: 'absolute', right: 5, top: '45%', backgroundColor: 'rgba(255, 255, 255, 0.95)', padding: 10, borderRadius: 12, zIndex: 10, elevation: 6 },
   minimizedText: { fontSize: 12, fontWeight: 'bold', color: '#333', marginVertical: 2 },
-  minimizedWarningBtn: { position: 'absolute', top: 110, right: 20, backgroundColor: '#FF0000', width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', zIndex: 10, elevation: 8, borderWidth: 2, borderColor: '#FFF' },
+  
+  // Style cho nút thu gọn cảnh báo dùng chung
+  minimizedWarningBtn: { position: 'absolute', top: 110, right: 20, backgroundColor: '#FF3B30', width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center', zIndex: 10, elevation: 8, borderWidth: 2, borderColor: '#FFF' },
+  warningBadge: { position: 'absolute', top: -5, right: -5, backgroundColor: '#FFCC00', width: 20, height: 20, borderRadius: 10, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#FFF' },
+  warningBadgeText: { color: '#333', fontSize: 12, fontWeight: 'bold' },
+
   zoneDetailMapBox: {
     backgroundColor: 'rgba(0, 0, 0, 0.75)',
     padding: 8,
@@ -333,20 +398,5 @@ const styles = StyleSheet.create({
     fontSize: 10,
     textAlign: 'center',
     marginBottom: 2
-  },
-  nearWarningIcon: {
-    position: 'absolute', 
-    top: 110, 
-    right: 20, 
-    backgroundColor: 'rgba(255,149,0,0.95)', 
-    width: 50, 
-    height: 50, 
-    borderRadius: 25, 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    zIndex: 10, 
-    elevation: 8, 
-    borderWidth: 2, 
-    borderColor: '#FFF'
   }
 });
