@@ -4,8 +4,8 @@ import * as turf from '@turf/turf';
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from "socket.io-client";
 
-const SIMULATOR_URL = "http://192.168.1.10:3001";
-const REAL_BE_URL = "http://192.168.1.10:5000";
+const SIMULATOR_URL = "http://192.168.1.16:3001";
+const REAL_BE_URL = "http://192.168.1.16:5000";
 
 export const useDroneTelemetry = (
   sessionId: string,
@@ -34,6 +34,13 @@ export const useDroneTelemetry = (
       const JWT_TOKEN = await AsyncStorage.getItem('ACCESS_TOKEN');
       const simSocket = io(SIMULATOR_URL, { transports: ["polling", "websocket"] });
       simSocketRef.current = simSocket;
+
+      simSocket.emit("drone:init", { 
+    droneId: simulatorDroneId, 
+    sessionId: sessionId, 
+    token: JWT_TOKEN 
+  });
+  // 👆 ---------------------------------------------------------------- 👆
 
       simSocket.on("drone:position", async (data) => {
         if (!data) return;
