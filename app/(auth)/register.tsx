@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, ImageBackground, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import authApi from '../../api/authApi'; 
-import CustomInput from '../../components/CustomInput'; 
+import React, { useState } from 'react';
+import { ActivityIndicator, Alert, ImageBackground, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import authApi from '../../api/authApi';
+import CustomInput from '../../components/CustomInput';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -59,7 +59,7 @@ export default function RegisterScreen() {
           
           {/* 1. Username */}
           <CustomInput 
-            placeholder="Username" 
+            placeholder="Họ và tên" 
             value={username}
             onChangeText={setUsername}
             containerStyle={styles.inputStyle} 
@@ -77,7 +77,7 @@ export default function RegisterScreen() {
 
           {/* 3. Password (Có thêm icon mắt) */}
           <CustomInput 
-            placeholder="Password" 
+            placeholder="Mật khẩu" 
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPassword}
@@ -88,7 +88,7 @@ export default function RegisterScreen() {
 
           {/* 4. Confirm Password (Có thêm icon mắt) */}
           <CustomInput 
-            placeholder="Confirm password" 
+            placeholder="Xác nhận mật khẩu" 
             value={confirmPassword}
             onChangeText={setConfirmPassword}
             secureTextEntry={!showConfirmPassword} 
@@ -106,14 +106,14 @@ export default function RegisterScreen() {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.mainBtnText}>Register</Text>
+              <Text style={styles.mainBtnText}>Đăng ký</Text>
             )}
           </TouchableOpacity>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Already have an account? </Text>
+            <Text style={styles.footerText}>Bạn đã có tài khoản? </Text>
             <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
-              <Text style={styles.linkText}>Login Now</Text>
+              <Text style={styles.linkText}>Đăng nhập ngay</Text>
             </TouchableOpacity>
           </View>
 
@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   paddingView: { paddingHorizontal: 20, paddingTop: 20 },
   backButton: { width: 40, height: 40, backgroundColor: '#fff', borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginBottom: 50 },
-    inputStyle: { 
+  inputStyle: { 
     borderRadius: 8, 
     borderWidth: 0,  
     marginBottom: 15 

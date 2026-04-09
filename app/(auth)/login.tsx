@@ -1,5 +1,4 @@
 import CustomInput from '@/components/CustomInput';
-import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
@@ -31,7 +30,6 @@ export default function LoginScreen() {
         console.log("Đã lưu Token và User Profile thành công!");
         console.log(resData.user.role);
         if (resData.user.role === 'FLEET_OPERATOR') {
-
           router.replace('/(FleetOperator)');
         } else {
           router.replace('/(tabs)');
@@ -56,11 +54,11 @@ export default function LoginScreen() {
     >
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.paddingView}>
-          <Text style={styles.title}>Welcome</Text>
+          <Text style={styles.title}>Chào mừng</Text>
 
           {/* Email*/}
           <CustomInput
-            placeholder="Enter your email"
+            placeholder="Nhập email của bạn"
             value={email}
             onChangeText={setEmail}
             keyboardType="email-address"
@@ -69,7 +67,7 @@ export default function LoginScreen() {
           />
           {/* Password */}
           <CustomInput
-            placeholder="Enter your password"
+            placeholder="Nhập mật khẩu của bạn"
             value={password}
             onChangeText={setPassword}
             secureTextEntry={!showPassword}
@@ -78,9 +76,9 @@ export default function LoginScreen() {
             containerStyle={{ borderWidth: 0 }}
           />
 
-          <TouchableOpacity style={styles.forgotPass}>
-            <Text style={styles.forgotPassText}>Forgot Password?</Text>
-          </TouchableOpacity>
+          {/* <TouchableOpacity style={styles.forgotPass}>
+            <Text style={styles.forgotPassText}>Quên mật khẩu?</Text>
+          </TouchableOpacity> */}
 
           {/* Button Login */}
           <TouchableOpacity
@@ -91,23 +89,14 @@ export default function LoginScreen() {
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.mainBtnText}>Login</Text>
+              <Text style={styles.mainBtnText}>Đăng nhập</Text>
             )}
-          </TouchableOpacity>
-          <View style={styles.dividerContainer}>
-            <View style={styles.line} />
-            <Text style={styles.dividerText}>Or Login with</Text>
-            <View style={styles.line} />
-          </View>
-
-          <TouchableOpacity style={styles.googleBtn}>
-            <Ionicons name="logo-google" size={24} color="#DB4437" />
           </TouchableOpacity>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Don't have an account? </Text>
+            <Text style={styles.footerText}>Bạn chưa có tài khoản? </Text>
             <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
-              <Text style={styles.linkText}>Register Now</Text>
+              <Text style={styles.linkText}>Đăng ký ngay</Text>
             </TouchableOpacity>
           </View>
 
@@ -124,13 +113,9 @@ const styles = StyleSheet.create({
   title: { fontSize: 32, fontWeight: 'bold', marginBottom: 60, marginTop: 30, color: '#1F222A' },
   forgotPass: { alignSelf: 'flex-end', marginBottom: 25 },
   forgotPassText: { color: '#ffffff', fontSize: 14 },
-  mainBtn: { backgroundColor: '#1F222A', height: 55, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginBottom: 30 },
+  mainBtn: { backgroundColor: '#1F222A', height: 55, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginBottom: 40 },
   mainBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  dividerContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
-  line: { flex: 1, height: 1, backgroundColor: 'rgba(255,255,255,0.5)' },
-  dividerText: { marginHorizontal: 10, color: '#ffffff' },
-  googleBtn: { backgroundColor: '#fff', alignSelf: 'center', padding: 10, borderRadius: 10, width: 60, alignItems: 'center', marginBottom: 40 },
   footer: { flexDirection: 'row', justifyContent: 'center' },
   footerText: { color: '#ffffff' },
-  linkText: { color: '#0055FF', fontWeight: 'bold' },
+  linkText: { color: '#000000', fontWeight: 'bold' },
 });
