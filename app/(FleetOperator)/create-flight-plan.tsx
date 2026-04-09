@@ -41,6 +41,108 @@ export default function CreateFlightPlanScreen() {
   };
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
 
+  const [editingWaypointIndex, setEditingWaypointIndex] = useState<number | null>(null);
+  const [editingWaypointAltitude, setEditingWaypointAltitude] = useState<string>('');
+  const [pendingWaypointCoords, setPendingWaypointCoords] = useState<number[] | null>(null);
+
+  const handleCloseModal = () => {
+    setEditingWaypointIndex(null);
+    setPendingWaypointCoords(null);
+    setEditingWaypointAltitude('');
+  };
+
+  const handleWaypointPress = (index: number) => {
+    setEditingWaypointIndex(index);
+    setEditingWaypointAltitude(waypoints[index].altitude.toString());
+  };
+
+  const handleSaveWaypointAltitude = () => {
+    const parsedAltitude = parseFloat(editingWaypointAltitude.toString());
+    if (isNaN(parsedAltitude) || parsedAltitude <= 0) {
+      Alert.alert("Lỗi", "Vui lòng nhập độ cao hợp lệ (lớn hơn 0).");
+      return;
+    }
+
+    let tentativeWaypoints = [...waypoints];
+    if (editingWaypointIndex !== null) {
+      tentativeWaypoints[editingWaypointIndex] = { ...tentativeWaypoints[editingWaypointIndex], altitude: parsedAltitude };
+    } else if (pendingWaypointCoords !== null) {
+      tentativeWaypoints.push({
+        longitude: pendingWaypointCoords[0],
+        latitude: pendingWaypointCoords[1],
+        altitude: parsedAltitude,
+        speed: 22,
+        action: tentativeWaypoints.length === 0 ? 'TAKEOFF' : 'WAYPOINT'
+      });
+    }
+
+    let hasError = false;
+    let warningMsg = null;
+
+    for (const z of zones) {
+      if (z.geometry && !hasError) {
+        // 1. Kiểm tra từng waypoint
+        for (let i = 0; i < tentativeWaypoints.length; i++) {
+          const wp = tentativeWaypoints[i];
+          const point = turf.point([wp.longitude, wp.latitude]);
+          let isInside = false;
+          try {
+             isInside = turf.booleanPointInPolygon(point, z.geometry as any);
+          } catch(e) {}
+          
+          if (isInside) {
+             const zoneAltText = z.maxAltitude || z.altitude;
+             const zoneAlt = zoneAltText ? parseFloat(zoneAltText.toString()) : 0;
+             if (zoneAlt > 0 && wp.altitude < zoneAlt) {
+                 Alert.alert("Không thể đặt điểm", `Độ cao (${wp.altitude}m) thấp hơn quy định của vùng "${z.name}" (${zoneAlt}m).`);
+                 hasError = true;
+                 break;
+             } else {
+                 warningMsg = `Điểm bay nằm trong hoặc đi qua vùng giới hạn: ${z.name}. Bạn phải tự chịu trách nhiệm bay!`;
+             }
+          }
+        }
+
+        if (hasError) break;
+        
+        // 2. Kiểm tra đoạn đường cắt ngang vùng
+        for (let i = 1; i < tentativeWaypoints.length; i++) {
+          const prevWp = tentativeWaypoints[i - 1];
+          const currWp = tentativeWaypoints[i];
+          const lineSegment = turf.lineString([
+            [prevWp.longitude, prevWp.latitude],
+            [currWp.longitude, currWp.latitude]
+          ]);
+          let isIntersecting = false;
+          try {
+             isIntersecting = turf.booleanIntersects(lineSegment, z.geometry as any);
+          } catch(e) {}
+
+          if (isIntersecting) {
+             const zoneAltText = z.maxAltitude || z.altitude;
+             const zoneAlt = zoneAltText ? parseFloat(zoneAltText.toString()) : 0;
+             if (zoneAlt > 0 && Math.min(prevWp.altitude, currWp.altitude) < zoneAlt) {
+                 Alert.alert("Không thể nối điểm", `Đường bay đi qua vùng "${z.name}" với độ cao thấp hơn quy định (${zoneAlt}m).`);
+                 hasError = true;
+                 break;
+             } else {
+                 warningMsg = `Lộ trình cắt vùng cấm/hạn chế: ${z.name}. Bạn tự chịu trách nhiệm về quyết định bay này.`;
+             }
+          }
+        }
+      }
+    }
+
+    if (hasError) return; // Ngăn chặn việc thêm điểm hoặc sửa độ cao sai luật
+
+    if (warningMsg && pendingWaypointCoords !== null) {
+      Alert.alert("Lưu ý an toàn", warningMsg);
+    }
+
+    setWaypoints(tentativeWaypoints);
+    handleCloseModal();
+  };
+
   useEffect(() => {
     const fetchDrones = async () => {
       try {
@@ -99,54 +201,9 @@ export default function CreateFlightPlanScreen() {
   const handleMapPress = (feature: any) => {
     if (!feature || !feature.geometry || !feature.geometry.coordinates) return;
     const coords = feature.geometry.coordinates; // [lng, lat]
-    const point = turf.point(coords);
-
-    let warningZone = null;
-    let lineSegment: any = null;
-
-    if (waypoints.length > 0) {
-      const lastWp = waypoints[waypoints.length - 1];
-      lineSegment = turf.lineString([[lastWp.longitude, lastWp.latitude], coords]);
-    }
-
-    for (const z of zones) {
-      if (z.geometry) {
-        try {
-          const isPointInside = turf.booleanPointInPolygon(point, z.geometry as any);
-          let isLineIntersecting = false;
-
-          if (lineSegment) {
-            isLineIntersecting = turf.booleanIntersects(lineSegment, z.geometry as any);
-          }
-
-          if (isPointInside || isLineIntersecting) {
-            warningZone = z;
-            break;
-          }
-        } catch (e) {
-          // Ignore parse errors from invalid geometries
-        }
-      }
-    }
-
-    if (warningZone) {
-      if (warningZone.type === 'no_fly') {
-        Alert.alert("Cảnh báo rủi ro", `Lộ trình của bạn đi qua Vùng cấm bay: ${warningZone.name}. Bạn sẽ phải hoàn toàn chịu trách nhiệm về quyết định bay này!`);
-      } else {
-        Alert.alert("Chú ý", `Lộ trình của bạn đi qua Vùng hạn chế: ${warningZone.name}. Bạn sẽ phải tự chịu trách nhiệm về an toàn bay.`);
-      }
-    }
-
-    setWaypoints(prev => [
-      ...prev,
-      {
-        longitude: coords[0],
-        latitude: coords[1],
-        altitude: prev.length === 0 ? 30 : 50,
-        speed: 22, // Default speed 22 m/s
-        action: prev.length === 0 ? 'TAKEOFF' : 'WAYPOINT'
-      }
-    ]);
+    setPendingWaypointCoords(coords);
+    setEditingWaypointAltitude('');
+    setEditingWaypointIndex(null);
   };
 
   const undoLastWaypoint = () => {
@@ -171,7 +228,7 @@ export default function CreateFlightPlanScreen() {
       const fromPoint = turf.point([prevWp.longitude, prevWp.latitude]);
       const toPoint = turf.point([currWp.longitude, currWp.latitude]);
       const horizontalDist = turf.distance(fromPoint, toPoint, { units: 'kilometers' }) * 1000;
-      
+
       const verticalDist = Math.abs(currWp.altitude - prevWp.altitude);
 
       const segmentDistance = Math.sqrt(Math.pow(horizontalDist, 2) + Math.pow(verticalDist, 2));
@@ -186,7 +243,7 @@ export default function CreateFlightPlanScreen() {
 
     const timeMinutes = Math.ceil(totalTimeSeconds / 60);
 
-    const MAX_DRONE_FLIGHT_TIME = 30; // Thay đổi tùy theo thông số Drone
+    const MAX_DRONE_FLIGHT_TIME = 30; 
 
 
     const batteryPercent = Math.ceil((timeMinutes / MAX_DRONE_FLIGHT_TIME) * 100);
@@ -215,6 +272,61 @@ export default function CreateFlightPlanScreen() {
       );
       return;
     }
+
+    // Kiểm tra độ cao waypoint so với zone
+    let hasAlerted = false;
+    for (const z of zones) {
+      if (z.geometry && !hasAlerted) {
+        // 1. Kiểm tra từng waypoint
+        for (let i = 0; i < waypoints.length; i++) {
+          const wp = waypoints[i];
+          const point = turf.point([wp.longitude, wp.latitude]);
+          let isInside = false;
+          try {
+            isInside = turf.booleanPointInPolygon(point, z.geometry as any);
+          } catch (e) { }
+
+          if (isInside) {
+            const zoneAltText = z.maxAltitude || z.altitude;
+            const zoneAlt = zoneAltText ? parseFloat(zoneAltText.toString()) : 0;
+            if (zoneAlt > 0 && wp.altitude < zoneAlt) {
+              Alert.alert("Cảnh báo vùng bay", `Độ cao của điểm ${i + 1} (${wp.altitude}m) thấp hơn giới hạn của vùng "${z.name}" (${zoneAlt}m). Không được phép tạo kế hoạch bay! Vui lòng chạm vào điểm trên bản đồ để sửa lại độ cao.`);
+              hasAlerted = true;
+              break;
+            }
+          }
+        }
+
+        if (hasAlerted) break;
+
+        // 2. Kiểm tra đoạn đường đi qua vùng
+        for (let i = 1; i < waypoints.length; i++) {
+          const prevWp = waypoints[i - 1];
+          const currWp = waypoints[i];
+          const lineSegment = turf.lineString([
+            [prevWp.longitude, prevWp.latitude],
+            [currWp.longitude, currWp.latitude]
+          ]);
+          let isIntersecting = false;
+          try {
+            isIntersecting = turf.booleanIntersects(lineSegment, z.geometry as any);
+          } catch (e) { }
+
+          if (isIntersecting) {
+            const zoneAltText = z.maxAltitude || z.altitude;
+            const zoneAlt = zoneAltText ? parseFloat(zoneAltText.toString()) : 0;
+            if (zoneAlt > 0 && Math.min(prevWp.altitude, currWp.altitude) < zoneAlt) {
+              Alert.alert("Cảnh báo vùng bay", `Lộ trình từ điểm ${i} đến ${i + 1} đi qua vùng "${z.name}" với độ cao thấp hơn quy định (${zoneAlt}m). Không được phép tạo kế hoạch bay! Vui lòng chạm vào điểm trên bản đồ để sửa lại độ cao.`);
+              hasAlerted = true;
+              break;
+            }
+          }
+        }
+      }
+      if (hasAlerted) break;
+    }
+
+    if (hasAlerted) return;
 
     const formattedWaypoints = waypoints.map((wp, index) => {
 
@@ -288,7 +400,6 @@ export default function CreateFlightPlanScreen() {
       try {
         const firstZone = zones[0];
         if (firstZone.geometry) {
-          // Provide a wider view of the restricted areas
           const center = turf.center(firstZone.geometry as any);
           return { centerCoordinate: center.geometry.coordinates, zoomLevel: 11 };
         }
@@ -297,7 +408,7 @@ export default function CreateFlightPlanScreen() {
       }
     }
 
-    return { centerCoordinate: [106.6297, 10.8231], zoomLevel: 14 }; // HCM default
+    return { centerCoordinate: [106.6297, 10.8231], zoomLevel: 14 };
   }, [waypoints, zones]);
 
   useEffect(() => {
@@ -321,7 +432,14 @@ export default function CreateFlightPlanScreen() {
   const zonesGeoJSON = useMemo(() => {
     if (zones.length === 0) return null;
     return turf.featureCollection(
-      zones.map(z => turf.feature(z.geometry, { type: z.type, name: z.name }))
+      zones.map(z => {
+        const altInfo = z.maxAltitude || z.altitude || '--';
+        return turf.feature(z.geometry, {
+          type: z.type,
+          name: z.name,
+          label: `${z.name}\nĐộ cao: ${altInfo}m`
+        });
+      })
     );
   }, [zones]);
 
@@ -338,6 +456,7 @@ export default function CreateFlightPlanScreen() {
           ref={cameraRef}
           defaultSettings={defaultCameraSettings as any}
         />
+
 
         {zonesGeoJSON && (
           <Mapbox.ShapeSource id="zones-source" shape={zonesGeoJSON as any}>
@@ -360,6 +479,20 @@ export default function CreateFlightPlanScreen() {
                 ]
               }}
             />
+
+            <Mapbox.SymbolLayer
+              id="zones-labels"
+              style={{
+                textField: ['get', 'label'],
+                textSize: 12,
+                textColor: '#000000',
+                textHaloColor: '#FFFFFF',
+                textHaloWidth: 2,
+                textAnchor: 'center',
+                textJustify: 'center'
+              }}
+            />
+
           </Mapbox.ShapeSource>
         )}
 
@@ -382,13 +515,23 @@ export default function CreateFlightPlanScreen() {
         {/* VẼ ĐIỂM ĐỂ HIỆN RÕ SỐ THỨ TỰ */}
         {waypoints.map((wp, index) => (
           <Mapbox.PointAnnotation
-            key={`wp-${index}`}
+            key={`wp-${index}-${wp.altitude}`}
             id={`wp-${index}`}
             coordinate={[wp.longitude, wp.latitude]}
+            onSelected={() => handleWaypointPress(index)}
           >
-            <View style={styles.markerContainer}>
-              <Text style={styles.markerText}>{index + 1}</Text>
-            </View>
+            <TouchableOpacity 
+              activeOpacity={0.8} 
+              onPress={() => handleWaypointPress(index)} 
+              style={{ padding: 4 }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#E65100', borderRadius: 15, paddingRight: 6, paddingLeft: 2, paddingVertical: 2, borderWidth: 2, borderColor: '#FFF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 3, elevation: 4 }}>
+                <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center' }}>
+                  <Text style={{ color: '#E65100', fontSize: 12, fontWeight: 'bold' }}>{index + 1}</Text>
+                </View>
+                <Text style={{ color: '#FFF', fontSize: 12, fontWeight: 'bold', marginLeft: 4, marginRight: 2 }}>{wp.altitude}m</Text>
+              </View>
+            </TouchableOpacity>
           </Mapbox.PointAnnotation>
         ))}
       </Mapbox.MapView>
@@ -463,19 +606,38 @@ export default function CreateFlightPlanScreen() {
           </View>
 
           {/* TAB SWITCHER */}
-          <View style={{ flexDirection: 'row', borderRadius: 8, backgroundColor: '#E0E0E0', padding: 4, marginBottom: 15 }}>
-            <TouchableOpacity
-              style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 6, backgroundColor: activeTab === 'MAP' ? '#fff' : 'transparent', shadowColor: activeTab === 'MAP' ? '#000' : 'transparent', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: activeTab === 'MAP' ? 2 : 0 }}
-              onPress={() => setActiveTab('MAP')}
-            >
-              <Text style={{ fontWeight: 'bold', color: activeTab === 'MAP' ? '#0055FF' : '#666' }}>Bản Đồ</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 6, backgroundColor: activeTab === 'LIST' ? '#fff' : 'transparent', shadowColor: activeTab === 'LIST' ? '#000' : 'transparent', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: activeTab === 'LIST' ? 2 : 0 }}
-              onPress={() => setActiveTab('LIST')}
-            >
-              <Text style={{ fontWeight: 'bold', color: activeTab === 'LIST' ? '#0055FF' : '#666' }}>Danh sách điểm</Text>
-            </TouchableOpacity>
+          <View>
+            <View style={{ flexDirection: 'row', borderRadius: 8, backgroundColor: '#E0E0E0', padding: 4, marginBottom: 15 }}>
+              <TouchableOpacity
+                style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 6, backgroundColor: activeTab === 'MAP' ? '#fff' : 'transparent', shadowColor: activeTab === 'MAP' ? '#000' : 'transparent', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: activeTab === 'MAP' ? 2 : 0 }}
+                onPress={() => setActiveTab('MAP')}
+              >
+                <Text style={{ fontWeight: 'bold', color: activeTab === 'MAP' ? '#0055FF' : '#666' }}>Bản Đồ</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, alignItems: 'center', paddingVertical: 10, borderRadius: 6, backgroundColor: activeTab === 'LIST' ? '#fff' : 'transparent', shadowColor: activeTab === 'LIST' ? '#000' : 'transparent', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: activeTab === 'LIST' ? 2 : 0 }}
+                onPress={() => setActiveTab('LIST')}
+              >
+                <Text style={{ fontWeight: 'bold', color: activeTab === 'LIST' ? '#0055FF' : '#666' }}>Danh sách điểm</Text>
+              </TouchableOpacity>
+            </View>
+            <View>
+              {flightEstimates.battery >= 48 && (
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: '#FFEBEE',
+                  padding: 10,
+                  borderRadius: 8,
+                  marginBottom: 15
+                }}>
+                  <Ionicons name="warning" size={20} color="#D32F2F" style={{ marginRight: 8 }} />
+                  <Text style={{ color: "#D32F2F", fontWeight: '600', fontSize: 14 }}>
+                    Cảnh báo: Khả năng không đủ pin khi quay đầu!
+                  </Text>
+                </View>
+              )}
+            </View>
           </View>
 
           {activeTab === 'MAP' ? (
@@ -608,8 +770,51 @@ export default function CreateFlightPlanScreen() {
                 <Ionicons name="contract" size={28} color="#333" />
               </TouchableOpacity>
             </View>
+            <View>
+              {flightEstimates.battery >= 48 && (
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: '#FFEBEE',
+                  padding: 10,
+                  borderRadius: 8,
+                  marginBottom: 15
+                }}>
+                  <Ionicons name="warning" size={20} color="#D32F2F" style={{ marginRight: 8 }} />
+                  <Text style={{ color: "#D32F2F", fontWeight: '600', fontSize: 14 }}>
+                    Cảnh báo: Khả năng không đủ pin khi quay đầu!
+                  </Text>
+                </View>
+              )}
+            </View>
             {isMapFullscreen && renderMapBox(true)}
           </SafeAreaView>
+        </View>
+      </Modal>
+
+      {/* MODAL EDIT/ADD WAYPOINT */}
+      <Modal visible={editingWaypointIndex !== null || pendingWaypointCoords !== null} transparent animationType="fade">
+        <View style={[styles.modalOverlay, { justifyContent: 'center' }]}>
+          <View style={[styles.modalContent, { borderRadius: 16, margin: 20, paddingBottom: 20 }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, paddingHorizontal: 20, paddingTop: 20 }}>
+              <Text style={{ fontSize: 18, fontWeight: 'bold' }}>{editingWaypointIndex !== null ? `Điều chỉnh Điểm ${editingWaypointIndex + 1}` : 'Nhập độ cao cho điểm mới'}</Text>
+              <TouchableOpacity onPress={handleCloseModal}>
+                <Ionicons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <View style={{ paddingHorizontal: 20 }}>
+              <Text style={styles.label}>Độ cao bay (m):</Text>
+              <TextInput
+                style={[styles.input, { marginBottom: 15 }]}
+                keyboardType="numeric"
+                value={editingWaypointAltitude}
+                onChangeText={setEditingWaypointAltitude}
+              />
+              <TouchableOpacity style={[styles.submitBtn, { height: 45, marginTop: 0 }]} onPress={handleSaveWaypointAltitude}>
+                <Text style={styles.submitBtnText}>XÁC NHẬN</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
 

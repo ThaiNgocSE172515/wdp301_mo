@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Mapbox from "@rnmapbox/maps";
 import * as turf from '@turf/turf';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Dimensions, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -15,6 +15,17 @@ export default function FlightPlanDetailScreen() {
     const [detail, setDetail] = useState<any>(null);
     const [zones, setZones] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+
+    const [isSimulating, setIsSimulating] = useState(false);
+    const [simulatedCoord, setSimulatedCoord] = useState<number[] | null>(null);
+    const [droneBearing, setDroneBearing] = useState(0);
+    const simTimerRef = useRef<any>(null);
+
+    useEffect(() => {
+        return () => {
+            if (simTimerRef.current) clearInterval(simTimerRef.current);
+        };
+    }, []);
 
     useEffect(() => {
         const fetchDetail = async () => {
@@ -126,6 +137,39 @@ export default function FlightPlanDetailScreen() {
         };
     }, [detail?.waypoints]);
 
+    const startSimulation = () => {
+        if (!detail?.waypoints || detail.waypoints.length < 2) return;
+        const line = turf.lineString(detail.waypoints.map((w: any) => [w.longitude, w.latitude]));
+        const totalDistance = turf.length(line, { units: 'kilometers' });
+
+        let currentDist = 0;
+        const totalFrames = 150; // Quá trình bay khoảng 7.5 giây (150 * 50ms)
+        const speed = totalDistance / totalFrames;
+
+        setIsSimulating(true);
+        if (simTimerRef.current) clearInterval(simTimerRef.current);
+
+        simTimerRef.current = setInterval(() => {
+            currentDist += speed;
+            if (currentDist >= totalDistance) {
+                clearInterval(simTimerRef.current);
+                setIsSimulating(false);
+                setSimulatedCoord(null);
+                setDroneBearing(0);
+            } else {
+                const pt = turf.along(line, currentDist, { units: 'kilometers' });
+                const nextPt = turf.along(line, currentDist + (speed / 2), { units: 'kilometers' });
+                setSimulatedCoord(pt.geometry.coordinates);
+                try {
+                    const bearing = turf.bearing(pt, nextPt);
+                    setDroneBearing(bearing);
+                } catch (e) { }
+            }
+        }, 50);
+    };
+
+    console.log(detail)
+
     if (loading) {
         return (
             <SafeAreaView style={styles.centerContainer}>
@@ -176,12 +220,32 @@ export default function FlightPlanDetailScreen() {
                             <Text style={styles.infoLabel}>Mã Drone:</Text>
                             <Text style={styles.infoValue}>{droneStats.droneId || 'Chưa rõ'}</Text>
                         </View>
+                        <View style={styles.infoRow}>
+                            <Ionicons name="battery-half-outline" size={20} color="#555" />
+                            <Text style={styles.infoLabel}> Pin dự kiến:</Text>
+                            <Text style={styles.infoValue}>{detail.batteryPercentageUsed + "%" || 'Chưa rõ'}</Text>
+                        </View>
+                        <View style={styles.infoRow}>
+                            <Ionicons name="timer-outline" size={20} color="#555" />
+                            <Text style={styles.infoLabel}>Thời gian bay dự kiến:</Text>
+                            <Text style={styles.infoValue}>{detail.estimatedFlightTime + " phút" || 'Chưa rõ'}</Text>
+                        </View>
 
                     </View>
                 </View>
 
                 <View style={styles.section}>
-                    <Text style={styles.sectionTitle}>Bản đồ Lộ trình</Text>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Bản đồ Lộ trình</Text>
+                        {/* <TouchableOpacity
+                            style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: (isSimulating || !lineGeoJSON) ? '#ccc' : '#D32F2F', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 }}
+                            onPress={startSimulation}
+                            disabled={isSimulating || !lineGeoJSON}
+                        >
+                            <Ionicons name={isSimulating ? "airplane" : "play"} size={16} color="#fff" style={{ marginRight: 4 }} />
+                            <Text style={{ color: '#fff', fontSize: 13, fontWeight: 'bold' }}>{isSimulating ? "Đang giả lập..." : "Giả lập bay"}</Text>
+                        </TouchableOpacity> */}
+                    </View>
                     <View style={styles.mapContainer}>
                         <Mapbox.MapView
                             style={{ flex: 1 }}
@@ -247,6 +311,19 @@ export default function FlightPlanDetailScreen() {
                                     </View>
                                 </Mapbox.PointAnnotation>
                             ))}
+
+                            {/* MÔ PHỎNG DRONE BAY */}
+                            {simulatedCoord && (
+                                <Mapbox.PointAnnotation
+                                    key="drone-simulator"
+                                    id="drone-simulator"
+                                    coordinate={simulatedCoord}
+                                >
+                                    <View style={{ transform: [{ rotate: `${droneBearing}deg` }], width: 32, height: 32, borderRadius: 16, backgroundColor: '#0055FF', justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: '#FFF', shadowColor: '#0055FF', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.8, shadowRadius: 4, elevation: 5 }}>
+                                        <Ionicons name="airplane" size={18} color="#FFF" style={{ transform: [{ rotate: '-45deg' }, { translateX: 2 }] }} />
+                                    </View>
+                                </Mapbox.PointAnnotation>
+                            )}
                         </Mapbox.MapView>
                     </View>
                 </View>

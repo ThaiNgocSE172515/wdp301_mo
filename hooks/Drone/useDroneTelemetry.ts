@@ -4,8 +4,9 @@ import * as turf from '@turf/turf';
 import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from "socket.io-client";
 
-const SIMULATOR_URL = "http://192.168.1.16:3001";
-const REAL_BE_URL = "http://192.168.1.16:5000";
+
+const SIMULATOR_URL = "http://10.0.2.2:3001";
+const REAL_BE_URL = "http://10.0.2.2:5000";
 
 export const useDroneTelemetry = (
   sessionId: string,
@@ -86,7 +87,7 @@ export const useDroneTelemetry = (
                   currentWarning = { id: zone._id || zone.id, name: zone.name, type: zone.type, status: 'near' };
                 }
               }
-            } catch (e) {}
+            } catch (e) { }
           }
           setWarningZone(currentWarning);
 
@@ -112,7 +113,7 @@ export const useDroneTelemetry = (
                     setBuildingWarning({ isColliding: true, height: dangerous.height, name: dangerous.name });
                   } else setBuildingWarning(null);
                 } else setBuildingWarning(null);
-              } catch (err) {}
+              } catch (err) { }
             }
           }
           if (cameraRef.current) {

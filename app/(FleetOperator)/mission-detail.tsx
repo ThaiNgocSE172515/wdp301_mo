@@ -8,7 +8,7 @@ import Mapbox from "@rnmapbox/maps";
 import * as turf from '@turf/turf';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Modal, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 type Mission = {
   "mission": {
@@ -39,6 +39,88 @@ export default function MissionDetailScreen() {
   const [plannedStartInput, setPlannedStartInput] = useState<string>('');
   const [isMapFullscreen, setIsMapFullscreen] = useState(false);
   const { missionId } = useLocalSearchParams();
+  const [flightPlain, setFlightPlain] = useState<any>(null);
+
+  const [liveDroneState, setLiveDroneState] = useState<any>(null);
+
+  useEffect(() => {
+    if (!mission?.missionPlans || mission.missionPlans.length === 0) return;
+    const timer = setInterval(() => {
+      const now = new Date().getTime();
+      let activePlan = null;
+
+      for (const p of mission.missionPlans) {
+        if (p.plannedStart && p.plannedEnd) {
+          const s = new Date(p.plannedStart).getTime();
+          const e = new Date(p.plannedEnd).getTime();
+          if (now >= s && now <= e) {
+            activePlan = p;
+            break;
+          }
+        }
+      }
+      console.log(flightPlain)
+
+      if (activePlan) {
+        const allCoords: any[] = [];
+        if (activePlan.flightPlan?.routeGeometry?.coordinates) {
+          const raw = activePlan.flightPlan.routeGeometry.coordinates;
+          if (raw.length > 0 && Array.isArray(raw[0])) allCoords.push(...raw);
+        } else if (activePlan.flightPlan?.waypoints) {
+          activePlan.flightPlan.waypoints.forEach((w: any) => {
+            if (w.longitude && w.latitude) allCoords.push([w.longitude, w.latitude]);
+          });
+        }
+
+        if (allCoords.length >= 2) {
+          const line = turf.lineString(allCoords);
+          const totalDistance = turf.length(line, { units: 'kilometers' });
+
+          const start = new Date(activePlan.plannedStart).getTime();
+          const end = new Date(activePlan.plannedEnd).getTime();
+          const progress = Math.min(1, Math.max(0, (now - start) / (end - start)));
+
+          const currentDistKm = totalDistance * progress;
+          const pt = turf.along(line, currentDistKm, { units: 'kilometers' });
+          const nextPt = turf.along(line, Math.min(totalDistance, currentDistKm + 0.001), { units: 'kilometers' });
+
+          let bearing = 0;
+          try { bearing = turf.bearing(pt, nextPt); } catch (e) { }
+
+          const maxBatteryUsed = activePlan.flightPlan?.batteryPercentageUsed || 0;
+          const currentBatteryUsed = maxBatteryUsed * progress;
+          const currentBattery = Math.max(0, 100 - currentBatteryUsed);
+
+          setLiveDroneState({
+            coordinate: pt.geometry.coordinates,
+            bearing,
+            battery: Math.round(currentBattery),
+            distanceTraveled: Math.round(currentDistKm * 1000),
+            totalDistance: Math.round(totalDistance * 1000)
+          });
+          return;
+        }
+      }
+
+      setLiveDroneState(null);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [mission]);
+
+
+  useEffect(() => {
+    const fetchFlightPlain = async () => {
+      if (!selectedForAdd) return;
+      try {
+        const response = await flightPlanApi.getById(selectedForAdd);
+        setFlightPlain(response);
+      } catch (e) {
+        console.error('Failed to get flight plan by id:', e);
+      }
+    }
+    fetchFlightPlain();
+  }, [selectedForAdd])
 
   useEffect(() => {
     const fetchMissions = async () => {
@@ -232,7 +314,17 @@ export default function MissionDetailScreen() {
         return;
       }
 
-      const endDate = new Date(startDate.getTime() + 2 * 3600000); // Tự động + 2 giờ
+      if (flightPlain.estimatedFlightTime === 0) {
+        Alert.alert("Lỗi", "Thời gian bay ước tính bằng 0");
+        return;
+      }
+
+      if (startDate <= new Date()) {
+        Alert.alert("Lỗi", "Thời gian bắt đầu phải lớn hơn thời gian hiện tại");
+        return;
+      }
+
+      const endDate = new Date(startDate.getTime() + flightPlain.estimatedFlightTime * 60000);
 
       const data = {
         flightPlanId: selectedForAdd,
@@ -340,7 +432,7 @@ export default function MissionDetailScreen() {
             const center = turf.center(firstZone.geometry as any);
             return { centerCoordinate: center.geometry.coordinates, zoomLevel: 11 };
           }
-        } catch (e) {}
+        } catch (e) { }
       }
       return { centerCoordinate: [106.6297, 10.8231], zoomLevel: 14 };
     }
@@ -395,96 +487,115 @@ export default function MissionDetailScreen() {
   }, [defaultCameraSettings]);
 
   const renderMapBox = (isFullscreen: boolean) => (
-        <View style={isFullscreen ? { flex: 1 } : styles.mapContainer}>
-          <Mapbox.MapView
-            style={{ flex: 1 }}
-            styleURL={Mapbox.StyleURL.SatelliteStreet}
-            logoEnabled={false}
-            attributionEnabled={false}
-            scrollEnabled={true}
-            zoomEnabled={true}
-          >
-            <Mapbox.Camera ref={cameraRef} defaultSettings={defaultCameraSettings as any} />
+    <View style={isFullscreen ? { flex: 1 } : styles.mapContainer}>
+      <Mapbox.MapView
+        style={{ flex: 1 }}
+        styleURL={Mapbox.StyleURL.SatelliteStreet}
+        logoEnabled={false}
+        attributionEnabled={false}
+        scrollEnabled={true}
+        zoomEnabled={true}
+      >
+        <Mapbox.Camera ref={cameraRef} defaultSettings={defaultCameraSettings as any} />
 
-            {zonesGeoJSON && (
-              <Mapbox.ShapeSource id="zones-source" shape={zonesGeoJSON as any}>
-                <Mapbox.FillLayer
-                  id="zones-fill"
-                  style={{
-                    fillColor: [
-                      "match",
-                      ["get", "type"],
-                      "no_fly", "rgba(255, 59, 48, 0.4)",      
-                      "restricted", "rgba(255, 204, 0, 0.4)", 
-                      "rgba(0,0,0,0.1)"
-                    ],
-                    fillOutlineColor: [
-                      "match",
-                      ["get", "type"],
-                      "no_fly", "#FF3B30",
-                      "restricted", "#FFCC00",
-                      "#000"
-                    ]
-                  }}
-                />
-              </Mapbox.ShapeSource>
-            )}
+        {zonesGeoJSON && (
+          <Mapbox.ShapeSource id="zones-source" shape={zonesGeoJSON as any}>
+            <Mapbox.FillLayer
+              id="zones-fill"
+              style={{
+                fillColor: [
+                  "match",
+                  ["get", "type"],
+                  "no_fly", "rgba(255, 59, 48, 0.4)",
+                  "restricted", "rgba(255, 204, 0, 0.4)",
+                  "rgba(0,0,0,0.1)"
+                ],
+                fillOutlineColor: [
+                  "match",
+                  ["get", "type"],
+                  "no_fly", "#FF3B30",
+                  "restricted", "#FFCC00",
+                  "#000"
+                ]
+              }}
+            />
+          </Mapbox.ShapeSource>
+        )}
 
-            {/* RENDER LINES */}
-            {mission?.missionPlans?.map((plan: any, index: number) => {
-              let geometry = plan.flightPlan?.routeGeometry;
-              if (!geometry && plan.flightPlan?.waypoints?.length > 1) {
-                geometry = turf.lineString(plan.flightPlan.waypoints.map((w: any) => [w.longitude, w.latitude])).geometry;
-              }
-              if (!geometry) return null;
+        {/* RENDER LINES */}
+        {mission?.missionPlans?.map((plan: any, index: number) => {
+          let geometry = plan.flightPlan?.routeGeometry;
+          if (!geometry && plan.flightPlan?.waypoints?.length > 1) {
+            geometry = turf.lineString(plan.flightPlan.waypoints.map((w: any) => [w.longitude, w.latitude])).geometry;
+          }
+          if (!geometry) return null;
 
-              return (
-                <Mapbox.ShapeSource key={`route-${index}`} id={`routeSource-${index}`} shape={geometry as any}>
-                  <Mapbox.LineLayer
-                    id={`routeLine-${index}`}
-                    style={{
-                      lineColor: ['#00D1FF', '#E65100', '#2E7D32', '#8E24AA'][index % 4],
-                      lineWidth: 3,
-                      lineJoin: 'round',
-                      lineCap: 'round',
-                      lineDasharray: [2, 2]
-                    }}
-                  />
-                </Mapbox.ShapeSource>
-              );
-            })}
+          return (
+            <Mapbox.ShapeSource key={`route-${index}`} id={`routeSource-${index}`} shape={geometry as any}>
+              <Mapbox.LineLayer
+                id={`routeLine-${index}`}
+                style={{
+                  lineColor: ['#00D1FF', '#E65100', '#2E7D32', '#8E24AA'][index % 4],
+                  lineWidth: 3,
+                  lineJoin: 'round',
+                  lineCap: 'round',
+                  lineDasharray: [2, 2]
+                }}
+              />
+            </Mapbox.ShapeSource>
+          );
+        })}
 
-            {/* RENDER POINTS */}
-            {mission?.missionPlans?.map((plan: any, planIndex: number) => (
-              plan.flightPlan?.waypoints?.map((wp: any, wpIndex: number) => (
-                <Mapbox.PointAnnotation
-                  key={`wp-${planIndex}-${wpIndex}`}
-                  id={`wp-${planIndex}-${wpIndex}`}
-                  coordinate={[wp.longitude, wp.latitude]}
-                >
-                  <View style={[styles.markerContainer, { backgroundColor: ['#00D1FF', '#E65100', '#2E7D32', '#8E24AA'][planIndex % 4] }]}>
-                    <Text style={styles.markerText}>{wp.sequenceNumber || wpIndex + 1}</Text>
-                  </View>
-                </Mapbox.PointAnnotation>
-              ))
-            ))}
-          </Mapbox.MapView>
-
-          {!isFullscreen && (
-            <View style={styles.statusOverlay}>
-              <Text style={styles.statusOverlayText}>{getStatusText(mission?.mission?.status || '')}</Text>
-            </View>
-          )}
-
-          {!isFullscreen && (
-            <TouchableOpacity
-              style={{ position: 'absolute', top: 10, right: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2 }}
-              onPress={() => setIsMapFullscreen(true)}
+        {mission?.missionPlans?.map((plan: any, planIndex: number) => (
+          plan.flightPlan?.waypoints?.map((wp: any, wpIndex: number) => (
+            <Mapbox.PointAnnotation
+              key={`wp-${planIndex}-${wpIndex}`}
+              id={`wp-${planIndex}-${wpIndex}`}
+              coordinate={[wp.longitude, wp.latitude]}
             >
-              <Ionicons name="expand" size={20} color="#333" />
-            </TouchableOpacity>
-          )}
+              <View style={[styles.markerContainer, { backgroundColor: ['#00D1FF', '#E65100', '#2E7D32', '#8E24AA'][planIndex % 4] }]}>
+                <Text style={styles.markerText}>{wp.sequenceNumber || wpIndex + 1}</Text>
+              </View>
+            </Mapbox.PointAnnotation>
+          ))
+        ))}
+
+        {liveDroneState && (
+          <Mapbox.PointAnnotation
+            key="live-drone-tracking"
+            id="live-drone-tracking"
+            coordinate={liveDroneState.coordinate}
+          >
+            <View style={{ alignItems: 'center' }}>
+              <View style={{ backgroundColor: 'rgba(31, 34, 42, 0.9)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginBottom: 5, flexDirection: 'row', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 5 }}>
+                <Ionicons name="battery-half" size={14} color="#4CAF50" />
+                <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold', marginLeft: 4, marginRight: 8 }}>{liveDroneState.battery}%</Text>
+                <Text style={{ color: '#00D1FF', fontSize: 11, fontWeight: 'bold' }}>{liveDroneState.distanceTraveled}m</Text>
+                <Text style={{ color: '#aaa', fontSize: 11 }}> / {liveDroneState.totalDistance}m</Text>
+              </View>
+              <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: '#0055FF', borderWidth: 3, borderColor: '#FFF', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.5, shadowRadius: 4, elevation: 5 }} >
+                <Text style={{ color: '#fff', fontSize: 11, fontWeight: 'bold' }}>{liveDroneState.battery}</Text>
+              </View>
+            </View>
+          </Mapbox.PointAnnotation>
+        )}
+      </Mapbox.MapView>
+
+      {!isFullscreen && (
+        <View style={styles.statusOverlay}>
+          <Text style={styles.statusOverlayText}>{getStatusText(mission?.mission?.status || '')}</Text>
         </View>
+      )}
+
+      {!isFullscreen && (
+        <TouchableOpacity
+          style={{ position: 'absolute', top: 10, right: 10, width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2 }}
+          onPress={() => setIsMapFullscreen(true)}
+        >
+          <Ionicons name="expand" size={20} color="#333" />
+        </TouchableOpacity>
+      )}
+    </View>
   );
 
   return (
@@ -606,10 +717,7 @@ export default function MissionDetailScreen() {
 
       {/* Modal chọn Flight Plan */}
       <Modal visible={modalVisible} transparent={true} animationType="slide">
-        <KeyboardAvoidingView 
-          style={styles.modalContainer}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
-        >
+        <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Chọn Kế hoạch bay</Text>
@@ -664,7 +772,7 @@ export default function MissionDetailScreen() {
               ListEmptyComponent={<Text style={{ textAlign: 'center', color: '#888', marginTop: 20 }}>Không có kế hoạch bay nào sẵn sàng.</Text>}
             />
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* MODAL FULL SCREEN MAP */}
@@ -687,10 +795,7 @@ export default function MissionDetailScreen() {
 
       {/* Modal Edit Mission */}
       <Modal visible={editMissionModalVisible} transparent={true} animationType="slide">
-        <KeyboardAvoidingView 
-          style={styles.modalContainer}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
-        >
+        <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Cập nhật Nhiệm vụ</Text>
@@ -719,14 +824,14 @@ export default function MissionDetailScreen() {
               </TouchableOpacity>
             </ScrollView>
           </View>
-        </KeyboardAvoidingView>
+        </View>
       </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F9F9F9', paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0 },
+  container: { flex: 1, backgroundColor: '#F9F9F9', paddingTop: 20 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 10, paddingBottom: 15 },
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
   actionBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F0F0F0', justifyContent: 'center', alignItems: 'center' },
@@ -745,11 +850,11 @@ const styles = StyleSheet.create({
   missionId: { fontSize: 14, color: '#888', marginBottom: 15, fontWeight: '600' },
   description: { fontSize: 15, color: '#555', lineHeight: 22 },
 
-  detailsCard: { backgroundColor: '#fff', marginHorizontal: 20, marginBottom: 12, borderRadius: 12, padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-  planHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, paddingBottom: 8, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
+  detailsCard: { backgroundColor: '#fff', marginHorizontal: 20, marginBottom: 15, borderRadius: 16, padding: 15, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
+  planHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' },
   planTitle: { fontSize: 16, fontWeight: '700', color: '#1F222A' },
   planBadge: { fontSize: 12, fontWeight: '600', color: '#E65100', backgroundColor: '#FFF3E0', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  detailRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  detailRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
   detailIconBox: { width: 40, height: 40, borderRadius: 10, backgroundColor: '#E3F2FD', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
   detailLabel: { fontSize: 13, color: '#888', marginBottom: 2 },
   detailValue: { fontSize: 14, fontWeight: '600', color: '#1F222A', flexShrink: 1 },
@@ -765,7 +870,6 @@ const styles = StyleSheet.create({
   startBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold', letterSpacing: 1 },
   loadingOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,255,255,0.7)', justifyContent: 'center', alignItems: 'center' },
 
-  // Modal styles
   modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '80%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
