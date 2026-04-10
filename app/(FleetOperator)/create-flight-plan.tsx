@@ -273,11 +273,9 @@ export default function CreateFlightPlanScreen() {
       return;
     }
 
-    // Kiểm tra độ cao waypoint so với zone
     let hasAlerted = false;
     for (const z of zones) {
       if (z.geometry && !hasAlerted) {
-        // 1. Kiểm tra từng waypoint
         for (let i = 0; i < waypoints.length; i++) {
           const wp = waypoints[i];
           const point = turf.point([wp.longitude, wp.latitude]);
@@ -299,7 +297,6 @@ export default function CreateFlightPlanScreen() {
 
         if (hasAlerted) break;
 
-        // 2. Kiểm tra đoạn đường đi qua vùng
         for (let i = 1; i < waypoints.length; i++) {
           const prevWp = waypoints[i - 1];
           const currWp = waypoints[i];
